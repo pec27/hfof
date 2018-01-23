@@ -3,7 +3,7 @@ from numpy.ctypeslib import ndpointer
 from numpy.linalg import eigvalsh
 import ctypes
 from numpy import float64, empty, array, int32, zeros, float32, require, int64, uint32, complex128
-from numpy import roll, diff, flatnonzero, uint64, cumsum, square
+from numpy import roll, diff, flatnonzero, uint64, cumsum, square, unique
 from os import path
 import sys
 
@@ -25,36 +25,41 @@ def _initlib(log):
     _libhfof = ctypes.cdll.LoadLibrary(name)
 
     # Find the cell for each point
-    # void find_lattice(const double *pos, const int num_pos, const int nx, int *out)
+    # void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int nx, int *out)
     func = _libhfof.find_lattice
     func.restype = None
-    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_int, ndpointer(int64)]
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, ctypes.c_int, ndpointer(int64)]
 
     # Friends of Friends linking
-    # int fof_link_cells(const int num_cells, const int N,const double rcut, const int64_t *restrict cell_ids, 
-    #                    const int32_t *restrict cell_start_end, const uint32_t *restrict sort_idx, int32_t *restrict domains, const double *restrict xyzw)
+    # int fof_link_cells(const int num_pos, const int N,const double rcut, const int64_t *restrict cell_ids, 
+    #                    const int64_t *restrict sort_idx, int32_t *restrict domains, const double *restrict xyzw)
     func = _libhfof.fof_link_cells
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(int64),ndpointer(int32),ndpointer(uint32), ndpointer(int32), ndpointer(float64)]
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(int64),ndpointer(int64), ndpointer(int32), ndpointer(float64)]
 
 
     return _libhfof
 
-def fof3d(cell_data, ngrid, rcut, sort_idx, xyzw, log=sys.stdout):
-    n = cell_data[0].shape[0]
-    cell_ids = cell_data[0]
-    cell_start_end = cell_data[1]
-    out = empty(n, dtype=int32)
+
+def fof3d(cells, ngrid, rcut, sort_idx, xyzw, log=sys.stdout):
+    npos = xyzw.shape[0]
+    cells = require(cells, dtype=int64, requirements=['C'])
+    sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
+    out = empty(npos, dtype=int32)
     lib = _initlib(log)
-    res = lib.fof_link_cells(n, ngrid, rcut, cell_ids, cell_start_end, sort_idx, out, xyzw)
+    res = lib.fof_link_cells(npos, ngrid, rcut, cells, sort_idx, out, xyzw)
 
     if res<0:
         raise Exception('Error with code %d'%res)
-    print('Number of domains', res, file=log)
+    print('Number of domains {:,}'.format(res), file=log)
+
+    print('Calculating unique domains', file=log)
+    uni_doms = unique(out)
+    print('{:,} unique domains'.format(len(uni_doms)), file=log)
     return out
 
 
-def get_cells(pts, ncell, log=sys.stdout):
+def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
     """
     For an (N,3) array of points in [0,1), find lattice index for 
     (ncell**3,) array
@@ -65,6 +70,6 @@ def get_cells(pts, ncell, log=sys.stdout):
     assert(p.shape ==(npts,3))
     out = empty(npts, dtype=int64)
 
-    res = lib.find_lattice(p, npts, ncell, out)
+    res = lib.find_lattice(p, npts, inv_cell_width, ncell, out)
     return out
 

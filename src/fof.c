@@ -1,22 +1,27 @@
 /*
   Friends of Friends via hash grid
  */
+// #define DEBUG  // Enable debug
+
 #include <math.h>
-#include <stdio.h>
+
 #include <stdlib.h>
 #include <stdint.h>
+#ifdef DEBUG
+  #include <stdio.h>
+#endif
 
 // Magic number that specifies how full the hash-table should be to be most efficient
 // Hash tables perform very badly beyond about 0.7
 #define DESIRED_LOAD 0.6
-//#define DEBUG
+
 
 // Hash table primes from planetmath.org
 #define MAX_TAB_NO 22 // number of table sizes
-static const unsigned int HASHTABLE_SIZES[MAX_TAB_NO] = {1024,2048,4096,8192,16384,32768,65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 33554432,67108864, 134217728, 268435456, 536870912, 1073741824, 2147483648U};
+static const unsigned int TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
 static const unsigned int HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
 
-void find_lattice(const double *pos, const int num_pos, const int nx, int64_t *out)
+void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int nx, int64_t *out)
 {
   /*
     Find the bucket index ((int)(p[0]*nx)*nx + (int)(p[1]*nx))*nx + (int)p[2]*nx 
@@ -25,12 +30,12 @@ void find_lattice(const double *pos, const int num_pos, const int nx, int64_t *o
 
   const int64_t NX = nx;
   for (int i=0;i<num_pos;i++)
-    out[i] = ((int64_t)(pos[i*3]*nx)*NX + (int64_t)(pos[i*3+1]*nx))*NX + (int64_t)(pos[i*3+2]*nx);
+    out[i] = ((int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width))*NX + (int64_t)(pos[i*3+2]*inv_cell_width);
 
 }
 
 
-int fof_link_cells(const int num_cells, const int N,const double rcut, const int64_t *restrict cell_ids, const int32_t *restrict cell_start_end, const uint32_t *restrict sort_idx, int32_t *restrict domains, const double *restrict xyzw)
+int fof_link_cells(const int num_pos, const int N,const double rcut, const int64_t *restrict cells, const int64_t *restrict sort_idx, int32_t *restrict domains, const double *restrict xyzw)
 {
   // This version uses disjoint sets algo, sep list
   /*
@@ -43,14 +48,35 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
   const int64_t cell_shift[58] = {N2, +1, +N, N2+N, N2-N, N2-1, N2+1, +N+1, +N-1, N2-N+1, N2+N+1, N2-N-1, N2+N-1, 2*N2, +2*N, +2, 2*N2+N, N2+2*N, 2*N2-N, N2-2*N, +N+2, +N-2, N2+2, 2*N2+1, N2-2, +2*N-1, +2*N+1, 2*N2-1, 2*N2-N-1, 2*N2+N-1, N2+2*N-1, N2-2*N+1, N2+N-2, 2*N2-N+1, 2*N2+N+1, N2+2*N+1, N2-N+2, N2+N+2, N2-N-2, N2-2*N-1, 2*N2+2*N, +2*N-2, 2*N2-2*N, 2*N2-2, 2*N2+2, +2*N+2, 2*N2+N-2, 2*N2-N-2, N2+2*N+2, 2*N2-2*N-1, 2*N2+2*N-1, 2*N2-2*N+1, 2*N2+2*N+1, N2-2*N+2, 2*N2-N+2, 2*N2+N+2, N2+2*N-2, N2-2*N-2};
 
   const double rcut2 = rcut*rcut;
+
+
+  /* Count the number of cells */
+  int num_cells = 1;
+  int64_t last_id = cells[sort_idx[0]];
+  for (int i=1;i<num_pos;++i)
+    {
+      if (cells[sort_idx[i]]!=last_id)
+	{
+	  num_cells++;
+	  last_id = cells[sort_idx[i]];
+	}
+    }
+#ifdef DEBUG
+  printf("Number of cells %d\n", num_cells);
+#endif
+
+  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
+  if (!cell_start_end)
+    return -1;
+
   // Find the next power of 2 large enough to hold table at desired load
   int tab_size=0;
-  while (tab_size<MAX_TAB_NO && HASHTABLE_SIZES[tab_size]*DESIRED_LOAD<num_cells) tab_size++;
+  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*DESIRED_LOAD<num_cells) tab_size++;
   if (tab_size==MAX_TAB_NO)
     return -1; // Table too big
 
   // Unsigned ints have guaranteed 'wrapping'
-  const unsigned int hsize = HASHTABLE_SIZES[tab_size], hprime = HASH_PRIMES[tab_size];
+  const unsigned int hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size];
   const unsigned int hmask = hsize-1;
 
   // Zero-ed hashtable (index + start + end for each cell)
@@ -76,6 +102,10 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
   int pt_cmp = 0, collisions=0, insertions=0, max_stack_usage=0;
 #endif
 
+
+
+  cell_start_end[0] = 0; // Start point of first cell
+
   // Loop over every (filled) cell
   for (unsigned int i=0;i<num_cells;++i)
     {
@@ -86,18 +116,32 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
 	  pt_cmp = 0;
 	  collisions=0;
 	  insertions=0;
-	  num_doms = 0;
+	  //	  num_doms = 0;
 	}
 #endif
 
+      // Put this in a new domain
       num_doms++;
 
-      // Put this in a new domain
-      unsigned int cur; // Cursor for linked list      
-      // Insert my cell into hash-table at the next free spot
-      for (cur=((unsigned int)cell_ids[i]*hprime)&hmask; htable[cur].icell; cur=(cur+1)&hmask);
+      const uint32_t cur_start = cell_start_end[i];
+      const int64_t cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
 
-      htable[cur].icell = ~cell_ids[i]; // Bit twiddle to make sure never 0
+      /* Start and end of point data for this cell */
+      uint32_t cur_end = cur_start+1;
+      if ((i+1)<num_cells)
+	{
+	  while (cells[sort_idx[cur_end]]==cur_cell_id)
+	    cur_end++;
+	}
+      else
+	cur_end = num_pos;
+      cell_start_end[i+1] = cur_end;
+
+      // Insert my cell into hash-table at the next free spot
+      unsigned int cur; // Cursor for linked list
+      for (cur=((unsigned int)cur_cell_id*hprime)&hmask; htable[cur].icell; cur=(cur+1)&hmask);
+
+      htable[cur].icell = ~cur_cell_id; // Bit twiddle to make sure never 0
       htable[cur].idx = i;
       unsigned int my_root = ds[i].parent = i; // Own domain
       ds[i].rank = 0;
@@ -105,7 +149,7 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       for (int adj=0;adj<58;++adj)
 	{
-	  const int64_t wanted_cell = cell_ids[i] - cell_shift[adj];
+	  const int64_t wanted_cell = cur_cell_id - cell_shift[adj];
 
 	  // Look up in hash table (search for cell or 0)
 
@@ -121,6 +165,7 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
 
 	      // Found
 	      const int adj_idx = htable[j].idx;
+	      /*************************************/
 	      // Find root of this domain (path compression of disjoint sets)
 
 	      unsigned int adj_root = ds[adj_idx].parent;
@@ -136,19 +181,17 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
 		ds[stack[--stack_used]].parent = adj_root;
 
 	      /* Done with (path-compressing) find */
-
+	      /*************************************/
 
 	      if (adj_root!=my_root) // Diff domain, might be connected
 		{
 		  // Check pairwise for any connections
-		  const int a1 = cell_start_end[adj_idx*2], a2 = cell_start_end[adj_idx*2+1];
-		  for (int k1=cell_start_end[i*2];k1<cell_start_end[i*2+1];++k1)
+		  for (int k1=cur_start;k1<cur_end;++k1)
 		    {
-		      const uint32_t v1 = sort_idx[k1];
+		      const int v1 = sort_idx[k1];
 		      const double x1 = xyzw[v1*3], y1 = xyzw[v1*3+1], z1 = xyzw[v1*3+2];
-		      for (int k2=a1;k2<a2;++k2)
+		      for (int k2=cell_start_end[adj_idx],v2=sort_idx[k2];cells[v2]==wanted_cell; v2=sort_idx[++k2])
 			{
-			  const uint32_t v2 = sort_idx[k2];
 			  const double dx = xyzw[v2*3]-x1,
 			    dy = xyzw[v2*3+1]-y1,
 			    dz = xyzw[v2*3+2]-z1;
@@ -184,6 +227,9 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
 	}
  
     }
+#ifdef DEBUG
+  printf("Number of domains %d\n", num_doms);
+#endif
 
   for (int i=0;i<num_cells; ++i)
     {
@@ -201,13 +247,15 @@ int fof_link_cells(const int num_cells, const int N,const double rcut, const int
       while (stack_used)
 	ds[stack[--stack_used]].parent = domain;
       /* Done with (path-compressing) find */
-      
-      domains[i] = domain;
+
+      // Set all particles to have this domain
+      for (int j=cell_start_end[i];j<cell_start_end[i+1];++j)
+	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
   printf("Max stack usage %d, point comparisons %d\n",max_stack_usage, pt_cmp);
 #endif
-
+  free(cell_start_end);
   free(htable);
   free(ds);
   return num_doms;
@@ -228,12 +276,12 @@ int fof_link_cells_nosort(const int num_cells, const int N,const double rcut, co
   const double rcut2 = rcut*rcut;
   // Find the next power of 2 large enough to hold table at desired load
   int tab_size=0;
-  while (tab_size<MAX_TAB_NO && HASHTABLE_SIZES[tab_size]*DESIRED_LOAD<num_cells) tab_size++;
+  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*DESIRED_LOAD<num_cells) tab_size++;
   if (tab_size==MAX_TAB_NO)
     return -1; // Table too big
 
   // Unsigned ints have guaranteed 'wrapping'
-  const unsigned int hsize = HASHTABLE_SIZES[tab_size], hprime = HASH_PRIMES[tab_size];
+  const unsigned int hsize = (TAB_START<<tab_size), hprime = HASH_PRIMES[tab_size];
   const unsigned int hmask = hsize-1;
 
   // Zero-ed hashtable (index + start + end for each cell)

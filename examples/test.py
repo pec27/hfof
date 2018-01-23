@@ -1,6 +1,8 @@
 from __future__ import absolute_import, print_function
 from hfof.fof import *
+import math
 
+#from hfof.lib import qsort_pos
 def get_sim_pos(i):
     
     from numpy import load, concatenate, empty, float64
@@ -24,42 +26,56 @@ def get_sim_pos(i):
     return pos
         
 def time_kdcount():
-    """ Random n^3 point placement """
+    """ Clustered n^3 points from real simulations """
     from lizard.log import VerboseTimingLog
     from kdcount.cluster import fof as kdfof, dataset
     log = VerboseTimingLog()
 
 
 #    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
-    for i, ngrid in [(128,1107), (256, 2217), (512, 4433)]:
+    for i, ngrid in [(128,1107), (256, 2217)]:#, (512, 4433)]:
         pos = get_sim_pos(i)
-        print(pos.min(), pos.max(), pos.dtype, file=log)
+        pos_min = pos.min(axis=0)
+        pos_max = pos.max(axis=0)
+
+        box_dims = pos_max - pos_min
+        max_dim = max(box_dims)
         rcut = (3**0.5)/ngrid
+
+        cell_width = float(rcut / (3**0.5))
+
+        inv_cell_width = float(1.0/cell_width)
+        
+        nval = int(math.ceil(max_dim*inv_cell_width))+2
+        nval = nval | 3 # Make sure last two bits set to 1
+
+        print('ngrid %d nval %d'%(ngrid, nval), file=log)
+
+        print(pos_min, pos_max, pos.dtype, file=log)
+        
         print('rcut', rcut,file=log)
 
         print('Loading lib', file=log)
-        cells = get_cells(pos[:5], ngrid, log)
+        cells = get_cells(pos[:5], inv_cell_width, ngrid, log)
         print('Finding cells', file=log)
-        cells = get_cells(pos, ngrid, log)
-        sort_idx, cellbin_data = bin_id_data(cells, log)
-        sort_idx = sort_idx.astype(uint32)
-#        print('Making N,3 sorted xyzw array',file=log)
-#        pos = pos[sort_idx]
-    
-        print(cellbin_data[0].dtype,cellbin_data[1].dtype,file=log)
-        
+        cells = get_cells(pos, inv_cell_width, nval, log)
 
+        print('Sorting cells', file=log)        
+        sort_idx = argsort(cells)
         print('3d fof', file=log)
-        domains = fof3d(cellbin_data, ngrid, rcut, sort_idx, pos, log=log)
+        domains = fof3d(cells, nval, rcut, sort_idx, pos, log=log)
     
         print('Number of unique domains', len(unique(domains)),file=log)
 
-        continue
         print('Trying with kdcount',file=log)
-        d = dataset(pos)
+
+        d = dataset(pos)#, boxsize=1.0)
         f = kdfof(d, rcut)
         print('Size', len(f.length), file=log)
-
+        print('Trying with periodic kdcount',file=log)
+        d = dataset(pos, boxsize=1.0)
+        f = kdfof(d, rcut)
+        print('Size', len(f.length), file=log)
     
 if __name__=='__main__':
     time_kdcount()
