@@ -31,31 +31,28 @@ def _initlib(log):
     func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, ctypes.c_int, ndpointer(int64)]
 
     # Friends of Friends linking
-    # int fof_link_cells(const int num_pos, const int N,const double rcut, const int64_t *restrict cell_ids, 
-    #                    const int64_t *restrict sort_idx, int32_t *restrict domains, const double *restrict xyzw)
+    # int fof_link_cells(const int num_pos, const int N, const double b, 
+    #		   const double *restrict xyz, const int64_t *restrict cells, 
+    #		   const int64_t *restrict sort_idx, int32_t *restrict domains)
     func = _libhfof.fof_link_cells
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(int64),ndpointer(int64), ndpointer(int32), ndpointer(float64)]
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int32)]
 
 
     return _libhfof
 
 
-def fof3d(cells, ngrid, rcut, sort_idx, xyzw, log=sys.stdout):
-    npos = xyzw.shape[0]
+def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=sys.stdout):
+    npos = xyz.shape[0]
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(npos, dtype=int32)
     lib = _initlib(log)
-    res = lib.fof_link_cells(npos, ngrid, rcut, cells, sort_idx, out, xyzw)
+    res = lib.fof_link_cells(npos, ngrid, rcut, xyz, cells, sort_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
     print('Number of domains {:,}'.format(res), file=log)
-
-    print('Calculating unique domains', file=log)
-    uni_doms = unique(out)
-    print('{:,} unique domains'.format(len(uni_doms)), file=log)
     return out
 
 
