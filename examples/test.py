@@ -81,7 +81,43 @@ def test_scaling():
     import numpy as np
     assert(np.all(np.equal(domains, domains_s)))
 
+def test_1024():
+    """ Why does the 1024 simn break for periodic? """
+    from lizard.log import VerboseTimingLog
+    from kdcount.cluster import fof as kdfof, dataset
+    log = VerboseTimingLog()
+
+    print('Loading lib', file=log)
+    cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, log)
+
+#    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
+    for i in [1024]:
+        pos = get_sim_pos(i)
+
+        rcut = 0.2/i
+
+        boxsize = 1.0
+        domains = fof_periodic(pos, boxsize, rcut, log=log)
+
+        print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
+        domains = fof(pos, rcut, log=log)
+
+        print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
+
+#        continue
+
+        print('Trying with kdcount',file=log)
+
+        d = dataset(pos)#, boxsize=1.0)
+        f = kdfof(d, rcut)
+        print('kdcount size {:,}'.format(len(f.length)), file=log)
+        print('Trying with periodic kdcount',file=log)
+        d = dataset(pos, boxsize=1.0)
+        f = kdfof(d, rcut)
+        print('Periodic kdcount Size {:,}'.format(len(f.length)), file=log)
+
 if __name__=='__main__':
 #    test_scaling()
     time_kdcount()
 
+#    test_1024()
