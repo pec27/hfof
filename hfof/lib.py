@@ -38,6 +38,15 @@ def _initlib(log):
     func.restype = ctypes.c_int
     func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int32)]
 
+    # Friends of Friends periodic linking
+    # int fof_periodic(const int num_pos, const int N, const int num_orig, 
+    #		 const double boxsize, const double b, 
+    #		 const double *restrict xyz, const int64_t *restrict cells, 
+    #		 const int64_t *restrict sort_idx, int32_t *restrict domains)
+    func = _libhfof.fof_periodic
+    func.restype = ctypes.c_int
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,
+                     ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), ndpointer(int32)]
 
     return _libhfof
 
@@ -55,6 +64,20 @@ def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=sys.stdout):
     print('Number of domains {:,}'.format(res), file=log)
     return out
 
+
+def fof3d_periodic(cells, ngrid, n_orig, pad_idx, rcut, sort_idx, xyz, log=sys.stdout):
+    npos = xyz.shape[0]
+    assert(npos>=n_orig) # cant have fewer points than non-image points
+    cells = require(cells, dtype=int64, requirements=['C'])
+    sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
+    out = empty(n_orig, dtype=int32) # only original points get domains
+    lib = _initlib(log)
+    res = lib.fof_periodic(npos, ngrid, n_orig, rcut, xyz, cells, sort_idx, pad_idx, out)
+
+    if res<0:
+        raise Exception('Error with code %d'%res)
+    print('Number of domains {:,}'.format(res), file=log)
+    return out
 
 def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
     """

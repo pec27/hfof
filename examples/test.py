@@ -1,6 +1,6 @@
 from __future__ import absolute_import, print_function
 from hfof.fof import *
-
+from numpy import unique
 
 
 #from hfof.lib import qsort_pos
@@ -36,26 +36,52 @@ def time_kdcount():
     cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, log)
 
 #    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
-    for i, ngrid in [(128,1107), (256, 2217)]:#, (512, 4433)]:
+    for i in [128,256,512,1024]:
         pos = get_sim_pos(i)
 
-        rcut = (3**0.5)/ngrid
+        rcut = 0.2/i
 
         domains = fof(pos, rcut, log=log)
 
         print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
-        continue
+        boxsize = 1.0
+        domains = fof_periodic(pos, boxsize, rcut, log=log)
+
+        print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
+
+#        continue
 
         print('Trying with kdcount',file=log)
 
         d = dataset(pos)#, boxsize=1.0)
         f = kdfof(d, rcut)
-        print('Size', len(f.length), file=log)
+        print('kdcount size {:,}'.format(len(f.length)), file=log)
         print('Trying with periodic kdcount',file=log)
         d = dataset(pos, boxsize=1.0)
         f = kdfof(d, rcut)
-        print('Size', len(f.length), file=log)
+        print('Periodic kdcount Size {:,}'.format(len(f.length)), file=log)
     
+def test_scaling():
+    from lizard.log import VerboseTimingLog
+    from kdcount.cluster import fof as kdfof, dataset
+    log = VerboseTimingLog()
+
+    print('Loading lib', file=log)
+    cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, log)
+
+    i, ngrid = (128,1107)
+    pos = get_sim_pos(i)
+
+    rcut = (3**0.5)/ngrid
+    
+    boxsize = 1.0
+    scale = 2.5
+    domains = fof_periodic(pos, boxsize, rcut, log=log)
+    domains_s = fof_periodic(pos*scale, boxsize*scale, rcut*scale, log=log)
+    import numpy as np
+    assert(np.all(np.equal(domains, domains_s)))
+
 if __name__=='__main__':
+#    test_scaling()
     time_kdcount()
 
