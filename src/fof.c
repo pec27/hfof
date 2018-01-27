@@ -19,16 +19,16 @@ static int max_stack_usage=0;
 // Hash table primes from planetmath.org
 #define MAX_TAB_NO 22 // number of table sizes
 static const unsigned int TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
-static const unsigned int HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
+static const int64_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
 
 
 typedef struct {
-    unsigned int parent, rank;
+  unsigned int parent, rank;
 } DisjointSet;
 
 typedef struct {
-  int64_t icell; // Bit twiddle cell to make sure nonzero
-  unsigned int idx; // index of cell (when ordered)
+  int64_t icell, // Bit twiddle cell to make sure nonzero
+    idx; // index of cell (when ordered)
 } HashCell;
 
 
@@ -41,7 +41,7 @@ void find_lattice(const double *pos, const int num_pos, const double inv_cell_wi
    */
 
   const int64_t NX = nx;
-  for (unsigned int i=0;i<num_pos;i++)
+  for (size_t i=0;i<num_pos;i++)
     out[i] = ((int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width))*NX + (int64_t)(pos[i*3+2]*inv_cell_width);
 
 }
@@ -122,7 +122,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   printf("Number of cells %d\n", num_cells);
 #endif
 
-  uint32_t* cell_start_end = malloc(num_cells*sizeof(uint32_t));
+  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
   if (!cell_start_end)
     return -1;
 
@@ -134,9 +134,8 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   if (tab_size==MAX_TAB_NO)
     return -2; // Table too big
 
-  // Unsigned ints have guaranteed 'wrapping'
-  const unsigned int hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size];
-  const unsigned int hmask = hsize-1;
+  const int64_t hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size],
+    hmask = hsize-1;
 
   // Hashtable of indices
   HashCell *htable = calloc(hsize, sizeof(HashCell));
@@ -153,22 +152,17 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   int pt_cmp = 0, collisions=0;
 #endif
 
-
-  cell_start_end[0] = 0; // Start point of first cell
-
+  cell_start_end[0] = 0;
   // Loop over every (filled) cell
-  for (unsigned int i=0, cur_end=0;i<num_cells;++i)
+  for (size_t i=0, cur_end=0;i<num_cells; cell_start_end[++i] = cur_end)
     {
-      // End of old domain
-      cell_start_end[i] = cur_end;
-
       // Put this in a new domain
       num_doms++;
-      unsigned int my_root = ds[i].parent = i; // Own domain
+      int64_t my_root = ds[i].parent = i; // Own domain
       ds[i].rank = 0;
 
-      const uint32_t cur_start = cur_end++;
-      const int64_t cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
+      const size_t cur_start = cur_end++,
+	cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
 
       /* Start and end of point data for this cell */
       if ((i+1)==num_cells)
@@ -178,7 +172,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	  cur_end++;
 
       // Insert my cell into hash-table at the next free spot
-      unsigned int cur=(unsigned int)cur_cell_id*hprime;
+      int64_t cur = cur_cell_id*hprime;
       while (htable[cur&=hmask].icell) 
 	cur++;
 
@@ -187,7 +181,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
       
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       int64_t wanted_cell = cur_cell_id - walk_ngbs[0];
-      for (unsigned int adj=0, j=(unsigned int)wanted_cell*hprime;1;)
+      for (int64_t adj=0, j=wanted_cell*hprime;1;)
 	{
 	  // Look up in hash table (search for cell or 0)
 	  if (!htable[j&=hmask].icell)
@@ -203,7 +197,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	      continue;
 	    }
 	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-	  const unsigned int adj_root = find_path_compress(j=htable[j].idx, ds);
+	  const int64_t adj_root = find_path_compress(j=htable[j].idx, ds);
 	  
 	  /* Other domain to check for connection? */
 	  if (adj_root!=my_root) 
@@ -212,11 +206,11 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 		Check pairwise for any connections, i.e. any point p1 in my
 		cell within b of any point p2 in adj cell
 	      */
-	      for (unsigned int my_k=cur_start;my_k<cur_end;++my_k)
+	      for (size_t my_k=cur_start;my_k<cur_end;++my_k)
 		{
 		  const double *xyz1 = xyz + sort_idx[my_k]*3;
 
-		  for (unsigned int adj_k=cell_start_end[j];
+		  for (size_t adj_k=cell_start_end[j];
 		       adj_k<cell_start_end[j+1]; adj_k++)
 		    {
 		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
@@ -248,21 +242,21 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	  if ((++adj)==58)
 	    break; // All done
 	  
-	  j=(unsigned int)(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
+	  j=(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
 	}
     }
 #ifdef DEBUG
   printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
 #endif
 
-  for (int i=0;i<num_cells; ++i)
+  for (size_t i=0;i<num_cells; ++i)
     {
 
       /* Find root of this domain (path compression of disjoint sets) */
-      const unsigned int domain = find_path_compress(i, ds);
+      const int64_t domain = find_path_compress(i, ds);
 
       // Set all particles in this cell to have this domain
-      for (int j=cell_start_end[i];j<cell_start_end[i+1];++j)
+      for (size_t j=cell_start_end[i];j<cell_start_end[i+1];++j)
 	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
@@ -303,7 +297,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
     cells.
   */
 
-  int num_doms=0;
+  int num_doms=0, num_cells=1;
 
   const int M = N*N;
   const int walk_ngbs[58] = {M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, 
@@ -315,13 +309,14 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 			     2*M+2, 2*N+2, 2*M+N-2, 2*M-N-2, M+2*N+2, 2*M-2*N-1, 
 			     2*M+2*N-1, 2*M-2*N+1, 2*M+2*N+1, M-2*N+2, 2*M-N+2, 
 			     2*M+N+2, M+2*N-2, M-2*N-2};
-
+  
   const double b2 = b*b;
 
+  if (!num_pos)
+    return 0; // No points no domains;
+
   /* Count the number of cells */
-  int num_cells = 1;
-  int64_t last_id = cells[sort_idx[0]];
-  for (int i=1;i<num_pos;++i)
+  for (int64_t i=1,last_id = cells[sort_idx[num_cells++]];i<num_pos;++i)
     if (cells[sort_idx[i]]!=last_id)
       {
 	num_cells++;
@@ -332,7 +327,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
   printf("Number of cells %d\n", num_cells);
 #endif
 
-  uint32_t* cell_start_end = malloc(num_cells*sizeof(uint32_t));
+  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
   if (!cell_start_end)
     return -1;
 
@@ -344,9 +339,8 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
   if (tab_size==MAX_TAB_NO)
     return -2; // Table too big
 
-  // Unsigned ints have guaranteed 'wrapping'
-  const unsigned int hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size];
-  const unsigned int hmask = hsize-1;
+  const int64_t hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size],
+    hmask = hsize-1;
 
   // Hashtable of indices
   HashCell *htable = calloc(hsize, sizeof(HashCell));
@@ -366,18 +360,16 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
   cell_start_end[0] = 0; // Start point of first cell
 
   // Loop over every (filled) cell
-  for (unsigned int i=0, cur_end=0,adj;i<num_cells;++i)
+  for (size_t i=0, cur_end=0;i<num_cells;cell_start_end[++i]=cur_end)
     {
-      // End of old domain
-      cell_start_end[i] = cur_end;
 
       // Put this in a new domain
       num_doms++;
-      unsigned int my_root = ds[i].parent = i; // Own domain
+      int64_t my_root = ds[i].parent = i; // Own domain
       ds[i].rank = 0;
 
-      const uint32_t cur_start = cur_end++;
-      const int64_t cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
+      const size_t cur_start = cur_end++,
+	cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
 
       /* Start and end of point data for this cell */
       if ((i+1)==num_cells)
@@ -388,22 +380,22 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 
 
       // Check for any false images and link to cell of original
-      unsigned int cur;
-      for (int k=cur_start;k<cur_end;++k)
+      
+      for (size_t k=cur_start;k<cur_end;++k)
 	{
-	  const int64_t p1 = sort_idx[k];
+	  const size_t p1 = sort_idx[k];
 	  if (p1<num_orig) // Original (not an image)
 	    continue; 
 	  const int64_t orig_cell=cells[pad_idx[p1-num_orig]];
 
 	  // Find cell in hash table (must be there)
-	  cur=(unsigned int)orig_cell*hprime;
+	  int64_t cur = orig_cell*hprime;
 	  while ((~htable[cur&=hmask].icell)!=orig_cell)
 	    cur++;
 
 	  // Link me (if not already)
 	  // Find root of this domain (path compression of disjoint sets)
-	  const unsigned int adj_root = find_path_compress(htable[cur].idx, ds);
+	  const int64_t adj_root = find_path_compress(htable[cur].idx, ds);
 	  
 	  if (adj_root==my_root) // Already linked
 	    continue;
@@ -421,7 +413,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	}
 
       // Insert my cell into hash-table at the next free spot
-      cur=(uint32_t)cur_cell_id*hprime;
+      int64_t cur = cur_cell_id*hprime;
       while (htable[cur&=hmask].icell)
 	cur++;
 
@@ -429,25 +421,24 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
       htable[cur].idx = i;
       
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      int64_t wanted_cell = cur_cell_id - walk_ngbs[adj=0];
-      
-      for (cur = (uint32_t)wanted_cell*hprime; 1;) 
+      int adj=0;
+      for (int64_t wanted_cell = cur_cell_id - walk_ngbs[0],j = wanted_cell*hprime; 1;) 
 	{
 	  // Look up in hash table (search for cell or 0)
-	  if (!htable[cur&=hmask].icell)
+	  if (!htable[j&=hmask].icell)
 	    goto next_ngb; // No cell (absent)
 	  
-	  if ((~htable[cur].icell)!=wanted_cell)
+	  if ((~htable[j].icell)!=wanted_cell)
 	    {
 	      // Wrong cell, move to next
 #ifdef DEBUG
 	      collisions++;
 #endif
-	      cur++;
+	      j++;
 	      continue;
 	    }
 	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-	  const unsigned int adj_root = find_path_compress(cur=htable[cur].idx, ds);
+	  const int64_t adj_root = find_path_compress(j=htable[j].idx, ds);
 	  
 	  /* Other domain to check for connection? */
 	  if (adj_root!=my_root) 
@@ -456,12 +447,12 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 		Check pairwise for any connections, i.e. any point p1 in my
 		cell within b of any point p2 in adj cell
 	      */
-	      for (unsigned int my_k=cur_start;my_k<cur_end;++my_k)
+	      for (size_t my_k=cur_start;my_k<cur_end;++my_k)
 		{
 		  const double *xyz1 = xyz + sort_idx[my_k]*3;
 		  
-		  for (unsigned int adj_k=cell_start_end[cur];
-		       adj_k<cell_start_end[cur+1]; adj_k++)
+		  for (size_t adj_k=cell_start_end[j];
+		       adj_k<cell_start_end[j+1]; adj_k++)
 		    {
 		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
 		      const double dx = xyz2[0]-xyz1[0],
@@ -492,22 +483,22 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	  if ((++adj)==58)
 	    break; // All done
 	  
-	  cur=(unsigned int)(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
+	  j=(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
 	}
     }
 #ifdef DEBUG
   printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
 #endif
 
-  for (int i=0;i<num_cells; ++i)
+  for (size_t i=0;i<num_cells; ++i)
     {
       /* Find root of this domain (path compression of disjoint sets) */
-      const unsigned int domain = find_path_compress(i, ds);
+      const int64_t domain = find_path_compress(i, ds);
 
       // Set all particles in this cell to have this domain
-      for (int j=cell_start_end[i];j<cell_start_end[i+1];++j)
+      for (size_t j=cell_start_end[i];j<cell_start_end[i+1];++j)
 	{
-	  const int p1=sort_idx[j];
+	  const size_t p1=sort_idx[j];
 	  if (p1<num_orig) // Ignore images
 	    domains[p1] = domain;
 	}
