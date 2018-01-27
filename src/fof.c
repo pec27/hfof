@@ -247,11 +247,15 @@ int fof_link_cells(const int num_pos, const int N, const double b,
     }
 #ifdef DEBUG
   printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
+  int max_rank=0;
 #endif
 
   for (size_t i=0;i<num_cells; ++i)
     {
-
+#ifdef DEBUG
+      if (ds[i].rank>max_rank)
+	max_rank = ds[i].rank;
+#endif
       /* Find root of this domain (path compression of disjoint sets) */
       const int64_t domain = find_path_compress(i, ds);
 
@@ -260,7 +264,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
-  printf("Max stack usage %d, point comparisons %d\n",max_stack_usage, pt_cmp);
+  printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
 
@@ -488,10 +492,16 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
     }
 #ifdef DEBUG
   printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
+  int max_rank=0;
 #endif
 
   for (size_t i=0;i<num_cells; ++i)
     {
+#ifdef DEBUG
+      if (ds[i].rank>max_rank)
+	max_rank = ds[i].rank;
+#endif
+
       /* Find root of this domain (path compression of disjoint sets) */
       const int64_t domain = find_path_compress(i, ds);
 
@@ -504,7 +514,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	}
     }
 #ifdef DEBUG
-  printf("Max stack usage %d, point comparisons %d\n",max_stack_usage, pt_cmp);
+  printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
 
