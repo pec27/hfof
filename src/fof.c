@@ -394,47 +394,40 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
       int64_t my_root = ds[i].parent = i; // Own domain
       ds[i].rank = 0;
 
-      const size_t cur_start = cur_end++,
+      const size_t cur_start = cur_end,
 	cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
 
-      /* Start and end of point data for this cell */
-      if ((i+1)==num_cells)
-	cur_end = num_pos;
-      else
-	while (cells[sort_idx[cur_end]]==cur_cell_id)
-	  cur_end++;
-
-
       // Check for any false images and link to cell of original
-      
-      for (size_t k=cur_start;k<cur_end;++k)
-	{
-	  const size_t p1 = sort_idx[k];
-	  if (p1<num_orig) // Original (not an image)
-	    continue; 
-	  const int64_t orig_cell=cells[pad_idx[p1-num_orig]];
+      do {
+	const size_t p1 = sort_idx[cur_end];
+	
+	if (cells[p1]!=cur_cell_id)
+	  break; // diff cell
+	
+	if (p1<num_orig) // Original (not an image)
+	  continue; 
 
-	  // Find cell in hash table (must be there)
-	  int64_t cur = orig_cell*hprime;
-	  while (htable[cur&=hmask].cell!=orig_cell)
-	    cur++;
-
-	  // Link me (if not already)
-	  // Find root of this domain (path compression of disjoint sets)
-	  const int64_t adj_root = find_path_compress(htable[cur].idx, ds);
-	  
-	  if (adj_root==my_root) // Already linked
-	    continue;
-
-	  // Connected (since my image in both cells)
-	  num_doms--;
-	  my_root = unite(my_root, adj_root, ds);
-
-	}
+	const int64_t orig_cell=cells[pad_idx[p1-num_orig]];
+	
+	// Find cell in hash table (must be there)
+	int64_t cur = orig_cell*hprime;
+	while (htable[cur&=hmask].cell!=orig_cell)
+	  cur++;
+	
+	// Link me (if not already)
+	// Find root of this domain (path compression of disjoint sets)
+	const int64_t adj_root = find_path_compress(htable[cur].idx, ds);
+	
+	if (adj_root==my_root) // Already linked
+	  continue;
+	
+	// Connected (since my image in both cells)
+	num_doms--;
+	my_root = unite(my_root, adj_root, ds);
+      } while ((++cur_end)<num_pos);
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      int adj=0;
-      for (int64_t wanted_cell = cur_cell_id - walk_ngbs[0],j = (wanted_cell*hprime)&hmask; 1;) 
+      for (int64_t adj=0,wanted_cell = cur_cell_id - walk_ngbs[0],j = (wanted_cell*hprime)&hmask; 1;) 
 	{
 	  // Look up in hash table (search for cell or 0)
 	  if (!(hfill[j>>5]>>(j&31)&1))
