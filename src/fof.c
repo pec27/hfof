@@ -27,7 +27,7 @@ typedef struct {
 } DisjointSet;
 
 typedef struct {
-  int64_t icell, // Bit twiddle cell to make sure nonzero
+  int64_t cell, // ID of cell
     idx; // index of cell (when ordered)
 } HashCell;
 
@@ -44,6 +44,17 @@ void find_lattice(const double *pos, const int num_pos, const double inv_cell_wi
   for (size_t i=0;i<num_pos;i++)
     out[i] = ((int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width))*NX + (int64_t)(pos[i*3+2]*inv_cell_width);
 
+}
+static inline unsigned int unite(const unsigned int my_root, const unsigned int adj_root, DisjointSet *restrict ds)
+{
+  // Disjoint sets union algorithm
+  if (ds[my_root].rank < ds[adj_root].rank) // Add me to adj
+    return (ds[my_root].parent = adj_root);
+  else if (ds[my_root].rank > ds[adj_root].rank) // Add adj to me
+    ds[adj_root].parent = my_root;
+  else // Arbitrarily choose, in tests add adj to me slightly faster
+    ds[ds[adj_root].parent = my_root].rank++;
+  return my_root;
 }
 static inline unsigned int find_path_compress(const unsigned int idx, DisjointSet *restrict ds)
 {
@@ -138,9 +149,14 @@ int fof_link_cells(const int num_pos, const int N, const double b,
     hmask = hsize-1;
 
   // Hashtable of indices
-  HashCell *htable = calloc(hsize, sizeof(HashCell));
+  HashCell *htable = malloc(hsize * sizeof(HashCell));
   if (!htable)
     return -3; // not enough mem.
+
+  // Hash table fill bits
+  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
+  if (!hfill)
+    return -5;
 
   DisjointSet *ds = malloc(num_cells*sizeof(DisjointSet));
   if (!ds)
@@ -149,7 +165,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 #ifdef DEBUG
   printf("Platform int size %d\nHash cell size %d bytes, DisjointSet cell size %d bytes\n", 
 	 (int)sizeof(int), (int)sizeof(HashCell), (int)sizeof(DisjointSet));
-  int pt_cmp = 0, collisions=0;
+  int pt_cmp = 0, collisions=0, found=0;
 #endif
 
   cell_start_end[0] = 0;
@@ -171,33 +187,30 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	while (cells[sort_idx[cur_end]]==cur_cell_id)
 	  cur_end++;
 
-      // Insert my cell into hash-table at the next free spot
-      int64_t cur = cur_cell_id*hprime;
-      while (htable[cur&=hmask].icell) 
-	cur++;
-
-      htable[cur].icell = ~cur_cell_id; // Bit twiddle to make sure never 0
-      htable[cur].idx = i;
-      
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       int64_t wanted_cell = cur_cell_id - walk_ngbs[0];
-      for (int64_t adj=0, j=wanted_cell*hprime;1;)
+      for (int64_t adj=0, j=(wanted_cell*hprime)&hmask;1;)
 	{
 	  // Look up in hash table (search for cell or 0)
-	  if (!htable[j&=hmask].icell)
+	  if (!(hfill[j>>5]>>(j&31)&1))
 	    goto next_ngb; // No cell (absent)
 
-	  if ((~htable[j].icell)!=wanted_cell)
+	  if (htable[j].cell!=wanted_cell)
 	    {
 	      // Wrong cell, move to next
 #ifdef DEBUG
 	      collisions++;
 #endif
-	      j++;
+	      j = (j+1)&hmask;
 	      continue;
 	    }
+#ifdef DEBUG
+	  found++;
+#endif
+
 	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-	  const int64_t adj_root = find_path_compress(j=htable[j].idx, ds);
+	  const int adj_idx = htable[j].idx;
+	  const int64_t adj_root = find_path_compress(adj_idx, ds);
 	  
 	  /* Other domain to check for connection? */
 	  if (adj_root!=my_root) 
@@ -210,8 +223,8 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 		{
 		  const double *xyz1 = xyz + sort_idx[my_k]*3;
 
-		  for (size_t adj_k=cell_start_end[j];
-		       adj_k<cell_start_end[j+1]; adj_k++)
+		  for (size_t adj_k=cell_start_end[adj_idx];
+		       adj_k<cell_start_end[adj_idx+1]; adj_k++)
 		    {
 		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
 		      const double dx = xyz2[0]-xyz1[0],
@@ -223,15 +236,9 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 		      if ((dx*dx + dy*dy + dz*dz) > b2)
 			continue;
 		      
-		      /* Disjoint sets union algorithm */
+		      // Connect the domains
 		      num_doms--;
-		      if (ds[my_root].rank < ds[adj_root].rank) // Add me to adj
-			my_root = ds[my_root].parent = adj_root;
-		      else if (ds[my_root].rank > ds[adj_root].rank) // Add adj to me
-			ds[adj_root].parent = my_root;
-		      else // Arbitrarily choose, in tests add adj to me slightly faster
-			ds[ds[adj_root].parent = my_root].rank++;
-		      /* Union done */
+		      my_root = unite(my_root, adj_root, ds);
 		      
 		      goto next_ngb;
 		    }
@@ -242,11 +249,22 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	  if ((++adj)==58)
 	    break; // All done
 	  
-	  j=(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
+	  j=((wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime)&hmask;
 	}
+
+      // Insert my cell into hash-table at the next free spot
+      int64_t cur = (cur_cell_id*hprime)&hmask;
+      while (hfill[cur>>5]&(1U<<(cur&31)))
+	cur = (cur+1)&hmask;
+      hfill[cur>>5] |= 1U<<(cur&31);
+      
+      htable[cur].idx = i;
+      htable[cur].cell = cur_cell_id;
     }
 #ifdef DEBUG
-  printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
+  float frac_found = found/ (58.0*num_cells),
+    cmp_per_pt = (float)pt_cmp / (float)num_pos;
+  printf("%.3f Comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, collisions, num_doms, frac_found, found);
   int max_rank=0;
 #endif
 
@@ -267,7 +285,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
-
+  free(hfill);
   free(ds);
   free(htable);
   free(cell_start_end);
@@ -347,9 +365,14 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
     hmask = hsize-1;
 
   // Hashtable of indices
-  HashCell *htable = calloc(hsize, sizeof(HashCell));
+  HashCell *htable = malloc(hsize * sizeof(HashCell));
   if (!htable)
     return -3; // not enough mem.
+
+  // Hash table fill bits
+  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
+  if (!hfill)
+    return -5;
 
   DisjointSet *ds = malloc(num_cells*sizeof(DisjointSet));
   if (!ds)
@@ -358,7 +381,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 #ifdef DEBUG
   printf("Platform int size %d\nHash cell size %d bytes, DisjointSet cell size %d bytes\n", 
 	 (int)sizeof(int), (int)sizeof(HashCell), (int)sizeof(DisjointSet));
-  int pt_cmp = 0, collisions=0;
+  int pt_cmp = 0, collisions=0, found=0;
 #endif
 
   cell_start_end[0] = 0; // Start point of first cell
@@ -366,7 +389,6 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells;cell_start_end[++i]=cur_end)
     {
-
       // Put this in a new domain
       num_doms++;
       int64_t my_root = ds[i].parent = i; // Own domain
@@ -394,7 +416,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 
 	  // Find cell in hash table (must be there)
 	  int64_t cur = orig_cell*hprime;
-	  while ((~htable[cur&=hmask].icell)!=orig_cell)
+	  while (htable[cur&=hmask].cell!=orig_cell)
 	    cur++;
 
 	  // Link me (if not already)
@@ -405,44 +427,35 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	    continue;
 
 	  // Connected (since my image in both cells)
-	  // Disjoint sets union algorithm
 	  num_doms--;
-	  if (ds[my_root].rank < ds[adj_root].rank) // Add me to adj
-	    my_root = ds[my_root].parent = adj_root;
-	  else if (ds[my_root].rank > ds[adj_root].rank) // Add adj to me
-	    ds[adj_root].parent = my_root;
-	  else // Arbitrarily choose, in tests add adj to me slightly faster
-	    ds[ds[adj_root].parent = my_root].rank++;
-	  // Union done 
+	  my_root = unite(my_root, adj_root, ds);
+
 	}
 
-      // Insert my cell into hash-table at the next free spot
-      int64_t cur = cur_cell_id*hprime;
-      while (htable[cur&=hmask].icell)
-	cur++;
-
-      htable[cur].icell = ~cur_cell_id; // Bit twiddle to make sure never 0
-      htable[cur].idx = i;
-      
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       int adj=0;
-      for (int64_t wanted_cell = cur_cell_id - walk_ngbs[0],j = wanted_cell*hprime; 1;) 
+      for (int64_t wanted_cell = cur_cell_id - walk_ngbs[0],j = (wanted_cell*hprime)&hmask; 1;) 
 	{
 	  // Look up in hash table (search for cell or 0)
-	  if (!htable[j&=hmask].icell)
+	  if (!(hfill[j>>5]>>(j&31)&1))
 	    goto next_ngb; // No cell (absent)
 	  
-	  if ((~htable[j].icell)!=wanted_cell)
+	  if (htable[j].cell!=wanted_cell)
 	    {
 	      // Wrong cell, move to next
 #ifdef DEBUG
 	      collisions++;
 #endif
-	      j++;
+	      j = (j+1)&hmask;
 	      continue;
 	    }
 	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-	  const int64_t adj_root = find_path_compress(j=htable[j].idx, ds);
+#ifdef DEBUG
+	  found++;
+#endif
+
+	  const int adj_idx = htable[j].idx;
+	  const int64_t adj_root = find_path_compress(adj_idx, ds);
 	  
 	  /* Other domain to check for connection? */
 	  if (adj_root!=my_root) 
@@ -455,8 +468,8 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 		{
 		  const double *xyz1 = xyz + sort_idx[my_k]*3;
 		  
-		  for (size_t adj_k=cell_start_end[j];
-		       adj_k<cell_start_end[j+1]; adj_k++)
+		  for (size_t adj_k=cell_start_end[adj_idx];
+		       adj_k<cell_start_end[adj_idx+1]; adj_k++)
 		    {
 		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
 		      const double dx = xyz2[0]-xyz1[0],
@@ -468,15 +481,9 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 		      if ((dx*dx + dy*dy + dz*dz) > b2)
 			continue;
 		      
-		      /* Disjoint sets union algorithm */
+		      // Connect the domains
 		      num_doms--;
-		      if (ds[my_root].rank < ds[adj_root].rank) // Add me to adj
-			my_root = ds[my_root].parent = adj_root;
-		      else if (ds[my_root].rank > ds[adj_root].rank) // Add adj to me
-			ds[adj_root].parent = my_root;
-		      else // Arbitrarily choose, in tests add adj to me slightly faster
-			ds[ds[adj_root].parent = my_root].rank++;
-		      /* Union done */
+		      my_root = unite(my_root, adj_root, ds);
 		      
 		      goto next_ngb;
 		    }
@@ -487,11 +494,23 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	  if ((++adj)==58)
 	    break; // All done
 	  
-	  j=(wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime;
+	  j=((wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime)&hmask;
 	}
+
+      // Insert my cell into hash-table at the next free spot
+      int64_t cur = (cur_cell_id*hprime)&hmask;
+      while (hfill[cur>>5]&(1U<<(cur&31)))
+	cur = (cur+1)&hmask;
+      hfill[cur>>5] |= 1U<<(cur&31);
+      
+      htable[cur].idx = i;
+      htable[cur].cell = cur_cell_id;
+
     }
 #ifdef DEBUG
-  printf("Connections complete, pt comparisons %d, hash collisions %d, domains created %d\n", pt_cmp, collisions, num_doms);
+  float frac_found = found/ (58.0*num_cells),
+    cmp_per_pt = (float)pt_cmp / (float)num_pos;
+  printf("%.3f Comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, collisions, num_doms, frac_found, found);
   int max_rank=0;
 #endif
 
@@ -519,6 +538,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 #endif
 
   free(ds);
+  free(hfill);
   free(htable);
   free(cell_start_end);
 
