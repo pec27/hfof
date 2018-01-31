@@ -9,7 +9,7 @@ import sys
 
 _libhfof = None
 
-def _initlib(log):
+def _initlib():
     """ Init the library (if not already loaded) """
     global _libhfof
 
@@ -21,7 +21,7 @@ def _initlib(log):
     if not path.exists(name):
         raise Exception('Library '+str(name)+' does not exist. Maybe you forgot to make it?')
 
-    print('Loading libhfof - C functions for FoF calculations', name, file=log)
+    print('Loading libhfof - C functions for FoF calculations', name)
     _libhfof = ctypes.cdll.LoadLibrary(name)
 
     # Find the cell for each point
@@ -51,32 +51,34 @@ def _initlib(log):
     return _libhfof
 
 
-def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=sys.stdout):
+def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(npos, dtype=int32)
-    lib = _initlib(log)
+    lib = _initlib()
     res = lib.fof_link_cells(npos, ngrid, rcut, xyz, cells, sort_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
-    print('Number of domains {:,}'.format(res), file=log)
+    if log is not None:
+        print('Number of domains {:,}'.format(res), file=log)
     return out
 
 
-def fof3d_periodic(cells, ngrid, n_orig, pad_idx, rcut, sort_idx, xyz, log=sys.stdout):
+def fof3d_periodic(cells, ngrid, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
     assert(npos>=n_orig) # cant have fewer points than non-image points
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(n_orig, dtype=int32) # only original points get domains
-    lib = _initlib(log)
+    lib = _initlib()
     res = lib.fof_periodic(npos, ngrid, n_orig, rcut, xyz, cells, sort_idx, pad_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
-    print('Number of domains {:,}'.format(res), file=log)
+    if log is not None:
+        print('Number of domains {:,}'.format(res), file=log)
     return out
 
 def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
@@ -84,7 +86,7 @@ def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
     For an (N,3) array of points in [0,1), find lattice index for 
     (ncell**3,) array
     """
-    lib = _initlib(log)
+    lib = _initlib()
     p = require(pts, dtype=float64, requirements=['C']) 
     npts = p.shape[0]
     assert(p.shape ==(npts,3))
