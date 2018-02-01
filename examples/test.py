@@ -1,5 +1,6 @@
 from __future__ import absolute_import, print_function
-from hfof.fof import *
+from hfof import fof, fof_periodic
+from hfof.lib import get_cells
 from numpy import unique
 
 
@@ -41,7 +42,7 @@ def time_kdcount():
 
         rcut = 0.2/i
 
-        domains = fof(pos, rcut, log=log)
+        domains = fof(pos, rcut, log=log, renum=False)
 
         print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
         boxsize = 1.0
@@ -49,7 +50,7 @@ def time_kdcount():
 
         print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
 
-#        continue
+        continue
 
         print('Trying with kdcount',file=log)
 
