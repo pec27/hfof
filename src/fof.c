@@ -9,7 +9,7 @@
 #include <stdint.h>
 #ifdef DEBUG
   #include <stdio.h>
-static int max_stack_usage=0;
+static int max_stack_usage=0, pt_cmp;
 #endif
 
 // Magic number that specifies how full the hash-table should be to be most efficient
@@ -27,8 +27,8 @@ typedef struct {
 } DisjointSet;
 
 typedef struct {
-  int64_t cell, // ID of cell
-    idx; // index of cell (when ordered)
+  int64_t cell; // ID of cell
+  uint32_t idx; // index of cell (when ordered)
 } HashCell;
 
 
@@ -78,7 +78,41 @@ static inline unsigned int find_path_compress(const unsigned int idx, DisjointSe
 
   return domain;
 }
+static int connected_pwise(const int cur_size, const int adj_size,
+			 const double b2,
+			 const int64_t* restrict cur_idx,
+			 const int64_t *restrict adj_idx,
+			 const double *restrict xyz)
+{
+  /*
+    Check pairwise for any connections, i.e. any point p1 in my
+    cell within b of any point p2 in adj cell
 
+    Returns 1 if connected, 0 otherwise
+  */
+
+  for (int my_k=cur_size;my_k;--my_k, cur_idx++)
+    {
+      const double *xyz1 = &xyz[(*cur_idx)*3];
+      const int64_t* p2 = adj_idx;      
+      for (int adj_k=adj_size;
+	   adj_k; --adj_k, p2++)
+	{
+	  const double *xyz2 = &xyz[(*p2)*3];
+	  const double dx = xyz2[0]-xyz1[0],
+	    dy = xyz2[1]-xyz1[1],
+	    dz = xyz2[2]-xyz1[2];
+#ifdef DEBUG		      
+	  pt_cmp++; // Count comparisons
+#endif
+	  if ((dx*dx + dy*dy + dz*dz) > b2)
+	    continue;
+	  
+	  return 1;
+	}
+    }
+  return 0;
+}
 int fof_link_cells(const int num_pos, const int N, const double b, 
 		   const double *restrict xyz, const int64_t *restrict cells, 
 		   const int64_t *restrict sort_idx, int32_t *restrict domains)
@@ -166,9 +200,10 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 #ifdef DEBUG
   printf("Platform int size %d\nHash cell size %d bytes, DisjointSet cell size %d bytes\n", 
 	 (int)sizeof(int), (int)sizeof(HashCell), (int)sizeof(DisjointSet));
-  int pt_cmp = 0, collisions=0, found=0;
+  int collisions=0, found=0;
+  pt_cmp = 0;
 #endif
-  int ctr=0;
+
   cell_start_end[0] = 0;
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells; cell_start_end[++i] = cur_end)
@@ -207,50 +242,21 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 		const int64_t adj_root = find_path_compress(adj_idx, ds);
 		
 		/* Other domain to check for connection? */
-		if (adj_root!=my_root) 
+		if (adj_root!=my_root && 
+		    connected_pwise(cur_end-cur_start,
+				    cell_start_end[adj_idx+1] - cell_start_end[adj_idx], 
+				    b2, sort_idx+cur_start, sort_idx + cell_start_end[adj_idx], xyz))
 		  {
-		    /*
-		      Check pairwise for any connections, i.e. any point p1 in my
-		      cell within b of any point p2 in adj cell
-		    */
-		    for (size_t my_k=cur_start;my_k<cur_end;++my_k)
-		      {
-			const double *xyz1 = xyz + sort_idx[my_k]*3;
-			
-			for (size_t adj_k=cell_start_end[adj_idx];
-			     adj_k<cell_start_end[adj_idx+1]; adj_k++)
-			  {
-			    const double *xyz2 = xyz + sort_idx[adj_k]*3;
-			    const double dx = xyz2[0]-xyz1[0],
-			      dy = xyz2[1]-xyz1[1],
-			      dz = xyz2[2]-xyz1[2];
-#ifdef DEBUG		      
-			    pt_cmp++; // Count comparisons
-#endif
-			    if ((dx*dx + dy*dy + dz*dz) > b2)
-			      continue;
-			    
-			    // Connect the domains
-			    num_doms--;
-			    my_root = unite(my_root, adj_root, ds);
-			    
-			    goto next_ngb;
-			  }
-		      }
-		  } 
+		    // Connect the domains
+		    num_doms--;
+		    my_root = unite(my_root, adj_root, ds);
+		  }
 		break;
 	      }
-	      // Wrong cell, move to next
 #ifdef DEBUG
 	  else
-	      collisions++;
+	      collisions++; // Wrong cell, move to next
 #endif
-
-		
-	next_ngb:
-	  ctr++;
-	  
-
 	}
 
       // Insert my cell into hash-table at the next free spot
@@ -383,11 +389,12 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 #ifdef DEBUG
   printf("Platform int size %d\nHash cell size %d bytes, DisjointSet cell size %d bytes\n", 
 	 (int)sizeof(int), (int)sizeof(HashCell), (int)sizeof(DisjointSet));
-  int pt_cmp = 0, collisions=0, found=0;
+  int collisions=0, found=0;
+  pt_cmp=0;
 #endif
 
   cell_start_end[0] = 0; // Start point of first cell
-  int ctr=0;
+
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells;cell_start_end[++i]=cur_end)
     {
@@ -428,7 +435,6 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	my_root = unite(my_root, adj_root, ds);
       } while ((++cur_end)<num_pos);
 
-
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       for (int64_t adj=0;adj<58;++adj)
 	{
@@ -448,47 +454,20 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 		const int64_t adj_root = find_path_compress(adj_idx, ds);
 		
 		/* Other domain to check for connection? */
-		if (adj_root!=my_root) 
+		if (adj_root!=my_root && connected_pwise(cur_end-cur_start,
+						       cell_start_end[adj_idx+1] - cell_start_end[adj_idx], 
+						       b2, sort_idx+cur_start, sort_idx + cell_start_end[adj_idx], xyz))
 		  {
-		    /*
-		      Check pairwise for any connections, i.e. any point p1 in my
-		      cell within b of any point p2 in adj cell
-		    */
-		    for (size_t my_k=cur_start;my_k<cur_end;++my_k)
-		      {
-			const double *xyz1 = xyz + sort_idx[my_k]*3;
-			
-			for (size_t adj_k=cell_start_end[adj_idx];
-			     adj_k<cell_start_end[adj_idx+1]; adj_k++)
-			  {
-			    const double *xyz2 = xyz + sort_idx[adj_k]*3;
-			    const double dx = xyz2[0]-xyz1[0],
-			      dy = xyz2[1]-xyz1[1],
-			      dz = xyz2[2]-xyz1[2];
-#ifdef DEBUG		      
-			    pt_cmp++; // Count comparisons
-#endif
-			    if ((dx*dx + dy*dy + dz*dz) > b2)
-			      continue;
-			    
-			    // Connect the domains
-			    num_doms--;
-			    my_root = unite(my_root, adj_root, ds);
-			    
-			    goto next_ngb;
-			  }
-		      }
-		  } 
+		    // Connect the domains
+		    num_doms--;
+		    my_root = unite(my_root, adj_root, ds);
+		  }
 		break;
 	      }
-	      // Wrong cell, move to next
 #ifdef DEBUG
 	  else
-	      collisions++;
+	      collisions++; // Wrong cell, move to next
 #endif
-		
-	next_ngb:
-	  ctr++;
 	}
 
       // Insert my cell into hash-table at the next free spot
