@@ -19,7 +19,7 @@ static int max_stack_usage=0;
 // Hash table primes from planetmath.org
 #define MAX_TAB_NO 22 // number of table sizes
 static const unsigned int TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
-static const int64_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
+static const uint32_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
 
 
 typedef struct {
@@ -145,7 +145,8 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   if (tab_size==MAX_TAB_NO)
     return -2; // Table too big
 
-  const int64_t hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size],
+  const int64_t hsize = TAB_START<<tab_size;
+  const uint32_t hprime = HASH_PRIMES[tab_size],
     hmask = hsize-1;
 
   // Hashtable of indices
@@ -167,7 +168,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	 (int)sizeof(int), (int)sizeof(HashCell), (int)sizeof(DisjointSet));
   int pt_cmp = 0, collisions=0, found=0;
 #endif
-
+  int ctr=0;
   cell_start_end[0] = 0;
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells; cell_start_end[++i] = cur_end)
@@ -188,74 +189,75 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 	  cur_end++;
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      int64_t wanted_cell = cur_cell_id - walk_ngbs[0];
-      for (int64_t adj=0, j=(wanted_cell*hprime)&hmask;1;)
+      for (int64_t adj=0;adj<58;++adj)
 	{
+	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
+	  
 	  // Look up in hash table (search for cell or 0)
-	  if (!(hfill[j>>5]>>(j&31)&1))
-	    goto next_ngb; // No cell (absent)
-
-	  if (htable[j].cell!=wanted_cell)
-	    {
+	  const HashCell *hj;
+	  for (uint32_t j=(uint32_t)wanted_cell*hprime&hmask;
+	       (hfill[j>>5]>>(j&31)&1);j&=hmask)
+	    if ((hj = &htable[j++])->cell==wanted_cell)
+	      {
+		// Found my cell, Find root of this domain (path compression of disjoint sets)
+#ifdef DEBUG
+		found++;
+#endif
+		const int adj_idx = hj->idx;
+		const int64_t adj_root = find_path_compress(adj_idx, ds);
+		
+		/* Other domain to check for connection? */
+		if (adj_root!=my_root) 
+		  {
+		    /*
+		      Check pairwise for any connections, i.e. any point p1 in my
+		      cell within b of any point p2 in adj cell
+		    */
+		    for (size_t my_k=cur_start;my_k<cur_end;++my_k)
+		      {
+			const double *xyz1 = xyz + sort_idx[my_k]*3;
+			
+			for (size_t adj_k=cell_start_end[adj_idx];
+			     adj_k<cell_start_end[adj_idx+1]; adj_k++)
+			  {
+			    const double *xyz2 = xyz + sort_idx[adj_k]*3;
+			    const double dx = xyz2[0]-xyz1[0],
+			      dy = xyz2[1]-xyz1[1],
+			      dz = xyz2[2]-xyz1[2];
+#ifdef DEBUG		      
+			    pt_cmp++; // Count comparisons
+#endif
+			    if ((dx*dx + dy*dy + dz*dz) > b2)
+			      continue;
+			    
+			    // Connect the domains
+			    num_doms--;
+			    my_root = unite(my_root, adj_root, ds);
+			    
+			    goto next_ngb;
+			  }
+		      }
+		  } 
+		break;
+	      }
 	      // Wrong cell, move to next
 #ifdef DEBUG
+	  else
 	      collisions++;
 #endif
-	      j = (j+1)&hmask;
-	      continue;
-	    }
-#ifdef DEBUG
-	  found++;
-#endif
 
-	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-	  const int adj_idx = htable[j].idx;
-	  const int64_t adj_root = find_path_compress(adj_idx, ds);
-	  
-	  /* Other domain to check for connection? */
-	  if (adj_root!=my_root) 
-	    {
-	      /*
-		Check pairwise for any connections, i.e. any point p1 in my
-		cell within b of any point p2 in adj cell
-	      */
-	      for (size_t my_k=cur_start;my_k<cur_end;++my_k)
-		{
-		  const double *xyz1 = xyz + sort_idx[my_k]*3;
-
-		  for (size_t adj_k=cell_start_end[adj_idx];
-		       adj_k<cell_start_end[adj_idx+1]; adj_k++)
-		    {
-		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
-		      const double dx = xyz2[0]-xyz1[0],
-			dy = xyz2[1]-xyz1[1],
-			dz = xyz2[2]-xyz1[2];
-#ifdef DEBUG		      
-		      pt_cmp++; // Count comparisons
-#endif
-		      if ((dx*dx + dy*dy + dz*dz) > b2)
-			continue;
-		      
-		      // Connect the domains
-		      num_doms--;
-		      my_root = unite(my_root, adj_root, ds);
-		      
-		      goto next_ngb;
-		    }
-		}
-	    }
 		
 	next_ngb:
-	  if ((++adj)==58)
-	    break; // All done
+	  ctr++;
 	  
-	  j=((wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime)&hmask;
+
 	}
 
       // Insert my cell into hash-table at the next free spot
-      int64_t cur = (cur_cell_id*hprime)&hmask;
+      int64_t cur = (uint32_t)cur_cell_id*hprime&hmask;
       while (hfill[cur>>5]&(1U<<(cur&31)))
 	cur = (cur+1)&hmask;
+
       hfill[cur>>5] |= 1U<<(cur&31);
       
       htable[cur].idx = i;
@@ -385,7 +387,7 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 #endif
 
   cell_start_end[0] = 0; // Start point of first cell
-
+  int ctr=0;
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells;cell_start_end[++i]=cur_end)
     {
@@ -426,68 +428,67 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 	my_root = unite(my_root, adj_root, ds);
       } while ((++cur_end)<num_pos);
 
+
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      for (int64_t adj=0,wanted_cell = cur_cell_id - walk_ngbs[0],j = (wanted_cell*hprime)&hmask; 1;) 
+      for (int64_t adj=0;adj<58;++adj)
 	{
-	  // Look up in hash table (search for cell or 0)
-	  if (!(hfill[j>>5]>>(j&31)&1))
-	    goto next_ngb; // No cell (absent)
+	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
 	  
-	  if (htable[j].cell!=wanted_cell)
-	    {
+	  // Look up in hash table (search for cell or 0)
+	  const HashCell *hj;
+	  for (uint32_t j=(uint32_t)wanted_cell*hprime&hmask;
+	       (hfill[j>>5]>>(j&31)&1);j&=hmask)
+	    if ((hj = &htable[j++])->cell==wanted_cell)
+	      {
+		// Found my cell, Find root of this domain (path compression of disjoint sets)
+#ifdef DEBUG
+		found++;
+#endif
+		const int adj_idx = hj->idx;
+		const int64_t adj_root = find_path_compress(adj_idx, ds);
+		
+		/* Other domain to check for connection? */
+		if (adj_root!=my_root) 
+		  {
+		    /*
+		      Check pairwise for any connections, i.e. any point p1 in my
+		      cell within b of any point p2 in adj cell
+		    */
+		    for (size_t my_k=cur_start;my_k<cur_end;++my_k)
+		      {
+			const double *xyz1 = xyz + sort_idx[my_k]*3;
+			
+			for (size_t adj_k=cell_start_end[adj_idx];
+			     adj_k<cell_start_end[adj_idx+1]; adj_k++)
+			  {
+			    const double *xyz2 = xyz + sort_idx[adj_k]*3;
+			    const double dx = xyz2[0]-xyz1[0],
+			      dy = xyz2[1]-xyz1[1],
+			      dz = xyz2[2]-xyz1[2];
+#ifdef DEBUG		      
+			    pt_cmp++; // Count comparisons
+#endif
+			    if ((dx*dx + dy*dy + dz*dz) > b2)
+			      continue;
+			    
+			    // Connect the domains
+			    num_doms--;
+			    my_root = unite(my_root, adj_root, ds);
+			    
+			    goto next_ngb;
+			  }
+		      }
+		  } 
+		break;
+	      }
 	      // Wrong cell, move to next
 #ifdef DEBUG
+	  else
 	      collisions++;
 #endif
-	      j = (j+1)&hmask;
-	      continue;
-	    }
-	  // Found my cell, Find root of this domain (path compression of disjoint sets)
-#ifdef DEBUG
-	  found++;
-#endif
-
-	  const int adj_idx = htable[j].idx;
-	  const int64_t adj_root = find_path_compress(adj_idx, ds);
-	  
-	  /* Other domain to check for connection? */
-	  if (adj_root!=my_root) 
-	    {
-	      /*
-		Check pairwise for any connections, i.e. any point p1 in my
-		cell within b of any point p2 in adj cell
-	      */
-	      for (size_t my_k=cur_start;my_k<cur_end;++my_k)
-		{
-		  const double *xyz1 = xyz + sort_idx[my_k]*3;
-		  
-		  for (size_t adj_k=cell_start_end[adj_idx];
-		       adj_k<cell_start_end[adj_idx+1]; adj_k++)
-		    {
-		      const double *xyz2 = xyz + sort_idx[adj_k]*3;
-		      const double dx = xyz2[0]-xyz1[0],
-			dy = xyz2[1]-xyz1[1],
-			dz = xyz2[2]-xyz1[2];
-#ifdef DEBUG		      
-		      pt_cmp++; // Count comparisons
-#endif
-		      if ((dx*dx + dy*dy + dz*dz) > b2)
-			continue;
-		      
-		      // Connect the domains
-		      num_doms--;
-		      my_root = unite(my_root, adj_root, ds);
-		      
-		      goto next_ngb;
-		    }
-		}
-	    }
-	  
+		
 	next_ngb:
-	  if ((++adj)==58)
-	    break; // All done
-	  
-	  j=((wanted_cell = cur_cell_id - walk_ngbs[adj])*hprime)&hmask;
+	  ctr++;
 	}
 
       // Insert my cell into hash-table at the next free spot
