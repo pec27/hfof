@@ -6,6 +6,7 @@ Peter Creasey - Oct 2016
 """
 from __future__ import absolute_import, print_function
 from .lib import fof3d, get_cells, fof3d_periodic
+from .primes import smallest_prime_atleast
 from numpy import flatnonzero, concatenate, argsort, array, floor, zeros, \
     empty_like, unique, arange
 import math
@@ -86,11 +87,16 @@ def fof(pos, rcut, renum=True, log=None):
     
     inv_cell_width = float(1.0/cell_width)
     
-    nval = int(math.ceil(max_dim*inv_cell_width))+2
-    nval = nval | 3 # Make sure last two bits set to 1
-    
+    n_min = int(math.ceil(max_dim*inv_cell_width))+2
     if log is not None:
-        print('Nval=%d (index conversion factor)'%nval, bin(nval), file=log)
+        print('Finding primes', file=log)
+    N = smallest_prime_atleast(n_min) # Make sure a prime
+    M = smallest_prime_atleast(N*N)
+
+    if log is not None:
+        print('Searched', N-n_min,'+', M-N*N, 'composites', file=log)
+        print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
+        print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
         
         print('Position minima', pos_min, file=log)
         print('Position maxima', pos_max, file=log)
@@ -99,14 +105,14 @@ def fof(pos, rcut, renum=True, log=None):
         print('rcut', rcut,file=log)
     
         print('Finding cells', file=log)
-    cells = get_cells(pos, inv_cell_width, nval, log)
+    cells = get_cells(pos, inv_cell_width, N, M, log)
     
     if log is not None:
         print('Sorting cells', file=log)        
     sort_idx = argsort(cells)
     if log is not None:
         print('3d fof', file=log)
-    domains = fof3d(cells, nval, rcut, sort_idx, pos, log=log)
+    domains = fof3d(cells, N, M, rcut, sort_idx, pos, log=log)
 
     if renum:
         if log is not None:
@@ -146,12 +152,19 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     
     inv_cell_width = float(1.0/cell_width)
     
-    nval = int(math.ceil(max_dim*inv_cell_width))+2 # two extra cells so never wrap
-    nval = nval | 3 # Make sure last two bits set to 1
-    
+    n_min = int(math.ceil(max_dim*inv_cell_width))+2 # two extra cells so never wrap
+
     if log is not None:
+        print('Finding primes', file=log)
+    N = smallest_prime_atleast(n_min) # Make sure a prime
+    M = smallest_prime_atleast(N*N)
+
+    if log is not None:
+        print('Searched', N-n_min,'+', M-N*N, 'composites', file=log)
+        print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
+        print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
+
         print('Inserted {:,} images'.format(n_new-n), file=log)
-        print('Nval=%d (index conversion factor)'%nval, bin(nval), file=log)
         
         print('Position minima', pos_min, file=log)
         print('Position maxima', pos_max, file=log)
@@ -160,12 +173,12 @@ def fof_periodic(pos, boxsize, rcut, log=None):
         print('rcut', rcut,file=log)
     
         print('Finding cells', file=log)
-    cells = get_cells(pos, inv_cell_width, nval, log)
+    cells = get_cells(pos, inv_cell_width, N, M, log)
     
     if log is not None:
         print('Sorting cells', file=log)        
     sort_idx = argsort(cells)
     if log is not None:
         print('3d fof periodic', file=log)
-    domains = fof3d_periodic(cells, nval, n, old_idx, rcut, sort_idx, pos, log=log)
+    domains = fof3d_periodic(cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
     return domains

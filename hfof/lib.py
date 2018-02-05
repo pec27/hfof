@@ -25,39 +25,41 @@ def _initlib():
     _libhfof = ctypes.cdll.LoadLibrary(name)
 
     # Find the cell for each point
-    # void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int nx, int *out)
+    # void find_lattice(const double *pos, const int num_pos, 
+    #                   const double inv_cell_width, const int N, const int M, int64_t *out)
     func = _libhfof.find_lattice
     func.restype = None
-    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, ctypes.c_int, ndpointer(int64)]
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
+                     ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
     # Friends of Friends linking
-    # int fof_link_cells(const int num_pos, const int N, const double b, 
+    # int fof_link_cells(const int num_pos, const int N, const int M, const double b, 
     #		   const double *restrict xyz, const int64_t *restrict cells, 
     #		   const int64_t *restrict sort_idx, int32_t *restrict domains)
     func = _libhfof.fof_link_cells
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int32)]
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int32)]
 
     # Friends of Friends periodic linking
-    # int fof_periodic(const int num_pos, const int N, const int num_orig, 
+    # int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, 
     #		 const double boxsize, const double b, 
     #		 const double *restrict xyz, const int64_t *restrict cells, 
     #		 const int64_t *restrict sort_idx, int32_t *restrict domains)
     func = _libhfof.fof_periodic
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), ndpointer(int32)]
 
     return _libhfof
 
 
-def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=None):
+def fof3d(cells, n, m, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(npos, dtype=int32)
     lib = _initlib()
-    res = lib.fof_link_cells(npos, ngrid, rcut, xyz, cells, sort_idx, out)
+    res = lib.fof_link_cells(npos, int(n), int(m), rcut, xyz, cells, sort_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
@@ -66,14 +68,14 @@ def fof3d(cells, ngrid, rcut, sort_idx, xyz, log=None):
     return out
 
 
-def fof3d_periodic(cells, ngrid, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
+def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
     assert(npos>=n_orig) # cant have fewer points than non-image points
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(n_orig, dtype=int32) # only original points get domains
     lib = _initlib()
-    res = lib.fof_periodic(npos, ngrid, n_orig, rcut, xyz, cells, sort_idx, pad_idx, out)
+    res = lib.fof_periodic(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
@@ -81,7 +83,7 @@ def fof3d_periodic(cells, ngrid, n_orig, pad_idx, rcut, sort_idx, xyz, log=None)
         print('Number of domains {:,}'.format(res), file=log)
     return out
 
-def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
+def get_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
     """
     For an (N,3) array of points in [0,1), find lattice index for 
     (ncell**3,) array
@@ -92,6 +94,6 @@ def get_cells(pts, inv_cell_width, ncell, log=sys.stdout):
     assert(p.shape ==(npts,3))
     out = empty(npts, dtype=int64)
 
-    res = lib.find_lattice(p, npts, inv_cell_width, ncell, out)
+    res = lib.find_lattice(p, npts, inv_cell_width, Ny, Nx, out)
     return out
 

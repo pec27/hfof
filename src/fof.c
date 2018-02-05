@@ -14,12 +14,12 @@ static int max_stack_usage=0, pt_cmp;
 
 // Magic number that specifies how full the hash-table should be to be most efficient
 // Hash tables perform very badly beyond about 0.7
-#define DESIRED_LOAD 0.6
+#define DESIRED_LOAD 0.3
 
 // Hash table primes from planetmath.org
-#define MAX_TAB_NO 22 // number of table sizes
-static const unsigned int TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
-static const uint32_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741};
+#define MAX_TAB_NO 23 // number of table sizes
+static const int64_t TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
+static const uint32_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741, 3221225473U};
 
 typedef struct {
   int64_t cell; // ID of cell
@@ -27,16 +27,16 @@ typedef struct {
     idx; // index of cell (when ordered)
 } HashCell;
 
-void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int nx, int64_t *out)
+void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int ny, const int nx, int64_t *out)
 {
   /*
-    Find the bucket index ((int)(p[0]*nx)*nx + (int)(p[1]*nx))*nx + (int)p[2]*nx 
+    Find the bucket index (int)(p[0]*inv_cell_width)*nx + (int)(p[1]*inv_cell_width)*ny + (int)(p[2]*inv_cell_width)
     for every point
    */
 
-  const int64_t NX = nx;
+  const int64_t NY=ny, NX = nx;
   for (size_t i=0;i<num_pos;i++)
-    out[i] = ((int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width))*NX + (int64_t)(pos[i*3+2]*inv_cell_width);
+    out[i] = (int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width)*NY + (int64_t)(pos[i*3+2]*inv_cell_width);
 
 }
 static inline unsigned int find_path_compress(const unsigned int idx, uint32_t *parents)
@@ -97,7 +97,7 @@ static int connected_pwise(const int cur_size, const int adj_size,
     }
   return 0;
 }
-int fof_link_cells(const int num_pos, const int N, const double b, 
+int fof_link_cells(const int num_pos, const int N, const int M, const double b, 
 		   const double *restrict xyz, const int64_t *restrict cells, 
 		   const int64_t *restrict sort_idx, int32_t *restrict domains)
 {
@@ -105,8 +105,9 @@ int fof_link_cells(const int num_pos, const int N, const double b,
     Friends of Friends by binning into cells.
 
     num_pos  - The number of points
-    N        - Multiplicative factor such that cell(i,j,k) = N^2 i + N j + k. 
+    N        - Multiplicative factor such that cell(i,j,k) = M i + N j + k. 
                Usually 3 mod 4 for maximum bitwise independence
+    M        - prime bigger than N^2
     b        - The linking length
     xyz      - (num_pos * 3) array of (unsorted) points
     cells    - The cell values for each point (s.t. i=x/cell_width etc.)
@@ -122,7 +123,6 @@ int fof_link_cells(const int num_pos, const int N, const double b,
 
   int num_doms=0, num_cells=0;
 
-  const int M = N*N;
   const int walk_ngbs[58] = {M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, 
 			     M+N+1, M-N-1, M+N-1, 2*M, 2*N, 2, 2*M+N, M+2*N, 
 			     2*M-N, M-2*N, N+2, N-2, M+2, 2*M+1, M-2, 2*N-1, 
@@ -299,7 +299,7 @@ int fof_link_cells(const int num_pos, const int N, const double b,
   return num_doms;
 }
 
-int fof_periodic(const int num_pos, const int N, const int num_orig, const double b, 
+int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, const double b, 
 		 const double *restrict xyz, const int64_t *restrict cells, 
 		 const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 		 int32_t *restrict domains)
@@ -308,8 +308,9 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
     Friends of Friends by binning into cells.
 
     num_pos  - The number of points
-    N        - Multiplicative factor such that cell(i,j,k) = N^2 i + N j + k. 
+    N        - Multiplicative factors such that cell(i,j,k) = M i + N j + k. 
                Usually 3 mod 4 for maximum bitwise independence
+    M        - prime bigger than N^2
     num_orig - Number of points that are not 'false' images
     b        - The linking length
     xyz      - (num_pos * 3) array of (unsorted) points
@@ -327,7 +328,6 @@ int fof_periodic(const int num_pos, const int N, const int num_orig, const doubl
 
   int num_doms=0, num_cells=1;
 
-  const int M = N*N;
   const int walk_ngbs[58] = {M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, 
 			     M+N+1, M-N-1, M+N-1, 2*M, 2*N, 2, 2*M+N, M+2*N, 
 			     2*M-N, M-2*N, N+2, N-2, M+2, 2*M+1, M-2, 2*N-1, 

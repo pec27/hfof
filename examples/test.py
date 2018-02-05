@@ -34,7 +34,7 @@ def time_kdcount():
     log = VerboseTimingLog()
 
     print('Loading lib', file=log)
-    cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, log)
+    cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, 11, log)
 
 #    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
     for i in [128,256,512,1024]:
