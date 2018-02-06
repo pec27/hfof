@@ -4,22 +4,26 @@
 //#define DEBUG  // Enable debug
 
 #include <math.h>
-
 #include <stdlib.h>
 #include <stdint.h>
+
 #ifdef DEBUG
   #include <stdio.h>
-static int max_stack_usage=0, pt_cmp;
+static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found, max_rank;
 #endif
 
 // Magic number that specifies how full the hash-table should be to be most efficient
 // Hash tables perform very badly beyond about 0.7
-#define DESIRED_LOAD 0.3
+// We use a lower load since spatial hashing uses lots of speculative searches
+#define DESIRED_LOAD 0.3 
 
-// Hash table primes from planetmath.org
+// Hash table primes = nearest_prime(N/pi) (where N is the hash table size)
 #define MAX_TAB_NO 23 // number of table sizes
 static const int64_t TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
-static const uint32_t HASH_PRIMES[MAX_TAB_NO] = {769,1543,3079,6151,12289, 24593,49157, 98317, 196613, 393241, 786433, 1572869, 3145739,6291469,12582917, 25165843, 50331653, 100663319, 201326611, 402653189, 805306457, 1610612741, 3221225473U};
+static const uint32_t HASH_PRIMES[MAX_TAB_NO] = 
+  {337, 653, 1319, 2609, 5273, 10433, 20849, 41729, 83449, 166799, 333769, 
+   667553, 1335053, 2670191, 5340359, 10680737, 21361421, 42722833, 85445677, 
+   170891297, 341782613, 683565317, 1367130521};
 
 typedef struct {
   int64_t cell; // ID of cell
@@ -147,13 +151,6 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	last_id = cells[sort_idx[i]];
       }
 
-#ifdef DEBUG
-  printf("Number of cells %d\n", num_cells);
-#endif
-
-  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
-  if (!cell_start_end)
-    return -1;
 
   // Find the next power of 2 large enough to hold table at desired load
   int tab_size=0;
@@ -167,15 +164,25 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   const unsigned int hprime = HASH_PRIMES[tab_size],
     hmask = hsize-1;
 
+#ifdef DEBUG
+  float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
+  printf("Number of cells %d\n", num_cells);
+  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
+  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*DESIRED_LOAD, 100.0*actual_load);
+
+  printf("Platform int size %d\nHash cell size %d bytes\n",
+	 (int)sizeof(int), (int)sizeof(HashCell));
+  max_rank = max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+#endif
+
   // Hashtable of indices
   HashCell *htable = malloc(hsize * sizeof(HashCell));
   if (!htable)
     return -3; // not enough mem.
 
-  // Hash table fill bits
-  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
-  if (!hfill)
-    return -5;
+  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
+  if (!cell_start_end)
+    return -1;
 
   uint32_t *parents = malloc(num_cells*sizeof(uint32_t));
   if (!parents)
@@ -185,12 +192,11 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   if (!ranks)
     return -4; // not enough mem.
 
-#ifdef DEBUG
-  printf("Platform int size %d\nHash cell size %d bytes\n",
-	 (int)sizeof(int), (int)sizeof(HashCell));
-  int collisions=0, found=0;
-  pt_cmp = 0;
-#endif
+  // Hash table fill bits
+  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
+  if (!hfill)
+    return -5;
+
 
   cell_start_end[0] = 0;
   // Loop over every (filled) cell
@@ -223,7 +229,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
-		found++;
+		ngb_found++;
 #endif
 		const unsigned int my_root = parents[i];
 
@@ -251,14 +257,26 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	      }
 #ifdef DEBUG
 	  else
-	      collisions++; // Wrong cell, move to next
+	      search_collisions++; // Wrong cell, move to next
 #endif
 	}
 
       // Insert my cell into hash-table at the next free spot
       unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
+
+#ifdef DEBUG
+      while (hfill[cur>>5]&(1U<<(cur&31)))
+	{
+	  fill_collisions++;
+	  cur = (cur+1)&hmask;
+	}
+
+#else
       while (hfill[cur>>5]&(1U<<(cur&31)))
 	cur = (cur+1)&hmask;
+
+#endif
+
 
       hfill[cur>>5] |= 1U<<(cur&31);
       
@@ -266,12 +284,6 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       htable[cur].cell = cur_cell_id;
       htable[cur].ancestor = parents[i];
     }
-#ifdef DEBUG
-  float frac_found = found/ (58.0*num_cells),
-    cmp_per_pt = (float)pt_cmp / (float)num_pos;
-  printf("%.3f Comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, collisions, num_doms, frac_found, found);
-  int max_rank=0;
-#endif
 
   for (size_t i=0;i<num_cells; ++i)
     {
@@ -287,6 +299,11 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
+  float frac_found = ngb_found/ (58.0*num_cells),
+    cmp_per_pt = (float)pt_cmp / (float)num_pos;
+  printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
+  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_cells, 100.0*expected_collisions);
+
   printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
@@ -351,14 +368,6 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	last_id = cells[sort_idx[i]];
       }
 
-#ifdef DEBUG
-  printf("Number of cells %d\n", num_cells);
-#endif
-
-  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
-  if (!cell_start_end)
-    return -1;
-
   // Find the next power of 2 large enough to hold table at desired load
   int tab_size=0;
   while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*DESIRED_LOAD<num_cells) 
@@ -367,18 +376,28 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (tab_size==MAX_TAB_NO)
     return -2; // Table too big
 
-  const int64_t hsize = TAB_START<<tab_size, hprime = HASH_PRIMES[tab_size],
-    hmask = hsize-1;
+  const int64_t hsize = TAB_START<<tab_size;
+  const unsigned int hprime = HASH_PRIMES[tab_size], hmask = hsize-1;
+
+#ifdef DEBUG
+  float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
+  printf("Number of cells %d\n", num_cells);
+  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
+  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*DESIRED_LOAD, 100.0*actual_load);
+
+  printf("Platform int size %d\nHash cell size %d bytes\n",
+	 (int)sizeof(int), (int)sizeof(HashCell));
+  max_rank = max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+#endif
 
   // Hashtable of indices
   HashCell *htable = malloc(hsize * sizeof(HashCell));
   if (!htable)
     return -3; // not enough mem.
 
-  // Hash table fill bits
-  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
-  if (!hfill)
-    return -5;
+  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
+  if (!cell_start_end)
+    return -1;
 
   uint32_t *parents = malloc(num_cells*sizeof(uint32_t));
   if (!parents)
@@ -388,12 +407,10 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (!ranks)
     return -4; // not enough mem.
 
-#ifdef DEBUG
-  printf("Platform int size %d\nHash cell size %d bytes\n",
-	 (int)sizeof(int), (int)sizeof(HashCell));
-  int collisions=0, found=0;
-  pt_cmp = 0;
-#endif
+  // Hash table fill bits
+  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
+  if (!hfill)
+    return -5;
 
   cell_start_end[0] = 0; // Start point of first cell
 
@@ -456,7 +473,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
-		found++;
+		ngb_found++;
 #endif
 		const unsigned int my_root = parents[i];
 
@@ -484,26 +501,30 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	      }
 #ifdef DEBUG
 	  else
-	      collisions++; // Wrong cell, move to next
+	      search_collisions++; // Wrong cell, move to next
 #endif
 	}
 
       // Insert my cell into hash-table at the next free spot
       unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
+#ifdef DEBUG
+      while (hfill[cur>>5]&(1U<<(cur&31)))
+	{
+	  fill_collisions++;
+	  cur = (cur+1)&hmask;
+	}
+
+#else
       while (hfill[cur>>5]&(1U<<(cur&31)))
 	cur = (cur+1)&hmask;
+
+#endif
       hfill[cur>>5] |= 1U<<(cur&31);
       
       htable[cur].idx = i;
       htable[cur].cell = cur_cell_id;
 
     }
-#ifdef DEBUG
-  float frac_found = found/ (58.0*num_cells),
-    cmp_per_pt = (float)pt_cmp / (float)num_pos;
-  printf("%.3f Comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, collisions, num_doms, frac_found, found);
-  int max_rank=0;
-#endif
 
   for (size_t i=0;i<num_cells; ++i)
     {
@@ -524,7 +545,13 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	}
     }
 #ifdef DEBUG
-  printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
+  float frac_found = ngb_found/ (58.0*num_cells),
+    cmp_per_pt = (float)pt_cmp / (float)num_pos;
+  printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
+  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", 
+	 fill_collisions*100.0/num_cells, 100.0*expected_collisions);
+  printf("Max stack usage %d, max rank %d, point comparisons %d\n",
+	 max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
 
