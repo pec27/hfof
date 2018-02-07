@@ -9,7 +9,7 @@
 
 #ifdef DEBUG
   #include <stdio.h>
-  static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found, max_rank;
+static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found;
 #endif
 
 // A walk over the 58 cells within sqrt(3) cell widths, and having idx<me, 
@@ -38,6 +38,10 @@ static const uint32_t HASH_PRIMES[MAX_TAB_NO] =
    170891297, 341782613, 683565317, 1367130521};
 
 typedef struct {
+  uint32_t parent, start; // Parent (disjoint set) and start point per cell
+} CellParentStart;
+
+typedef struct {
   int64_t cell; // ID of cell
   uint32_t ancestor, // Hint for root
     idx; // index of cell (when ordered)
@@ -55,15 +59,15 @@ void find_lattice(const double *pos, const int num_pos, const double inv_cell_wi
     out[i] = (int64_t)(pos[i*3]*inv_cell_width)*NX + (int64_t)(pos[i*3+1]*inv_cell_width)*NY + (int64_t)(pos[i*3+2]*inv_cell_width);
 
 }
-static inline unsigned int find_path_compress(const unsigned int idx, uint32_t *parents)
+static inline unsigned int find_path_compress(const unsigned int idx, CellParentStart *restrict cells)
 {
   /*
     Find root (domain) with path compression (i.e. set all parents to final root 
   */
 
-  unsigned int stack_used=0, stack[16], domain = parents[idx];
+  unsigned int stack_used=0, stack[16], domain = cells[idx].parent;
 
-  for(unsigned int child=idx;child!=domain;domain = parents[child=domain])
+  for(unsigned int child=idx;child!=domain;domain = cells[child=domain].parent)
     stack[stack_used++] = child;
   
 #ifdef DEBUG
@@ -73,16 +77,16 @@ static inline unsigned int find_path_compress(const unsigned int idx, uint32_t *
 
   // Set all those paths to have final parent
   while (stack_used)
-    parents[stack[--stack_used]] = domain;
+    cells[stack[--stack_used]].parent = domain;
 
   return domain;
 }
 
 static int connected_pwise(const int cur_size, const int adj_size,
-			 const double b2,
-			 const int64_t* restrict cur_idx,
-			 const int64_t *restrict adj_idx,
-			 const double *restrict xyz)
+			   const double b2,
+			   const int64_t* restrict cur_idx,
+			   const int64_t *restrict adj_idx,
+			   const double *restrict xyz)
 {
   /*
     Check pairwise for any connections, i.e. any point p1 in my
@@ -114,7 +118,7 @@ static int connected_pwise(const int cur_size, const int adj_size,
   return 0;
 }
 int fof_link_cells(const int num_pos, const int N, const int M, const double b, 
-		   const double *restrict xyz, const int64_t *restrict cells, 
+		   const double *restrict xyz, const int64_t *restrict cell_ids, 
 		   const int64_t *restrict sort_idx, int32_t *restrict domains)
 {
   /*
@@ -126,8 +130,8 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     M        - prime bigger than N^2
     b        - The linking length
     xyz      - (num_pos * 3) array of (unsorted) points
-    cells    - The cell values for each point (s.t. i=x/cell_width etc.)
-    sort_idx - An index such that cells[sort_idx] is ascending (ordered points
+    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
+    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
                by cell)
     domains  - (num_pos,) integer output array for the domains
 
@@ -147,11 +151,11 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     return 0; // No points => no domains!
 
   /* Count the number of cells */
-  for (int64_t i=1,last_id = cells[sort_idx[num_cells++]];i<num_pos;++i)
-    if (cells[sort_idx[i]]!=last_id)
+  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
+    if (cell_ids[sort_idx[i]]!=last_id)
       {
 	num_cells++;
-	last_id = cells[sort_idx[i]];
+	last_id = cell_ids[sort_idx[i]];
       }
 
 
@@ -175,7 +179,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 
   printf("Platform int size %d\nHash cell size %d bytes\n",
 	 (int)sizeof(int), (int)sizeof(HashCell));
-  max_rank = max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
 #endif
 
   // Hashtable of indices
@@ -183,13 +187,10 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   if (!htable)
     return -3; // not enough mem.
 
-  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
-  if (!cell_start_end)
-    return -1;
+  CellParentStart* cells = malloc((num_cells+1)*sizeof(CellParentStart));
 
-  uint32_t *parents = malloc(num_cells*sizeof(uint32_t));
-  if (!parents)
-    return -4; // not enough mem.
+  if (!cells)
+    return -1;
 
   uint8_t *ranks = malloc(num_cells*sizeof(uint8_t));
   if (!ranks)
@@ -201,24 +202,20 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     return -5;
 
 
-  cell_start_end[0] = 0;
+  cells[0].start = 0;
   // Loop over every (filled) cell
-  for (size_t i=0, cur_end=0;i<num_cells; cell_start_end[++i] = cur_end)
+  for (size_t i=0, cur_end=0;cur_end<num_pos; cells[++i].start = cur_end)
     {
       // Put this in a new domain
       num_doms++;
-      parents[i] = i; // Own domain
-      ranks[i] = 0;
+      ranks[cells[i].parent=i] = 0; // Own domain
 
-      const size_t cur_start = cur_end++;
-      const int64_t cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
+      const size_t cur_start = cur_end;
+      const int64_t cur_cell_id = cell_ids[sort_idx[cur_end++]]; // ID for this cell
 
       /* Start and end of point data for this cell */
-      if ((i+1)==num_cells)
-	cur_end = num_pos;
-      else
-	while (cells[sort_idx[cur_end]]==cur_cell_id)
-	  cur_end++;
+      while (cur_end<num_pos && cell_ids[sort_idx[cur_end]]==cur_cell_id)
+	cur_end++;
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       for (int adj=0;adj<WALK_NGB_SIZE;++adj)
@@ -227,33 +224,34 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	  
 	  // Look up in hash table (search for cell or 0)
 	  for (unsigned int j=(unsigned int)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=j+1&hmask)
+	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
 	    if (htable[j].cell==wanted_cell)
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
 		ngb_found++;
 #endif
-		const unsigned int my_root = parents[i];
+		const unsigned int my_root = cells[i].parent;
 
 		if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
 		 break;
 
 		const int adj_idx = htable[j].idx;
-		const unsigned int adj_root = htable[j].ancestor = find_path_compress(htable[j].ancestor, parents);
+		const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
 		
 		/* Other domain to check for connection? */
 		if (adj_root!=my_root && 
 		    connected_pwise(cur_end-cur_start,
-				    cell_start_end[adj_idx+1] - cell_start_end[adj_idx], 
-				    b2, sort_idx+cur_start, sort_idx + cell_start_end[adj_idx], xyz))
+				    cells[adj_idx+1].start - cells[adj_idx].start, 
+				    b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
 		  {
+
 		    // Connect the domains
 		    num_doms--;
 		    // Disjoint sets union algorithm
 		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
-		      parents[i] = parents[my_root] = adj_root;
-		    else if (ranks[htable[j].ancestor = parents[adj_root] = my_root] == ranks[adj_root]) // Add adj to me
+		      cells[i].parent = cells[my_root].parent = adj_root;
+		    else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
 		      ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
 		  }
 		break;
@@ -271,12 +269,12 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       while (hfill[cur>>5]&1U<<(cur&31))
 	{
 	  fill_collisions++;
-	  cur = cur+1&hmask;
+	  cur = (cur+1)&hmask;
 	}
 
 #else
       while (hfill[cur>>5]&(1U<<(cur&31)))
-	cur = cur+1&hmask;
+	cur = (cur+1)&hmask;
 
 #endif
 
@@ -285,23 +283,24 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       
       htable[cur].idx = i;
       htable[cur].cell = cur_cell_id;
-      htable[cur].ancestor = parents[i];
+      htable[cur].ancestor = cells[i].parent;
     }
 
   for (size_t i=0;i<num_cells; ++i)
     {
-#ifdef DEBUG
-      if (ranks[i]>max_rank)
-	max_rank = ranks[i];
-#endif
       /* Find root of this domain (path compression of disjoint sets) */
-      const unsigned int domain = find_path_compress(i, parents);
+      const unsigned int domain = find_path_compress(i, cells);
 
       // Set all particles in this cell to have this domain
-      for (size_t j=cell_start_end[i];j<cell_start_end[i+1];++j)
+      for (size_t j=cells[i].start;j<cells[i+1].start;++j)
 	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
+  int max_rank = ranks[0];
+  for (size_t i=1;i<num_cells;++i)
+    if (ranks[i]>max_rank)
+	max_rank = ranks[i];
+
   float frac_found = ngb_found/ (WALK_NGB_SIZE*num_cells),
     cmp_per_pt = (float)pt_cmp / (float)num_pos;
   printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
@@ -310,17 +309,17 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
-  free(parents);
+
   free(hfill);
   free(ranks);
+  free(cells);
   free(htable);
-  free(cell_start_end);
 
   return num_doms;
 }
 
 int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, const double b, 
-		 const double *restrict xyz, const int64_t *restrict cells, 
+		 const double *restrict xyz, const int64_t *restrict cell_ids, 
 		 const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 		 int32_t *restrict domains)
 {
@@ -334,8 +333,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
     num_orig - Number of points that are not 'false' images
     b        - The linking length
     xyz      - (num_pos * 3) array of (unsorted) points
-    cells    - The cell values for each point (s.t. i=x/cell_width etc.)
-    sort_idx - An index such that cells[sort_idx] is ascending (ordered points
+    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
+    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
                by cell)
     pad_idx  - the indices of the images in the original array (for linking)
     domains  - (num_pos,) integer output array for the domains
@@ -356,11 +355,11 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
     return 0; // No points no domains;
 
   /* Count the number of cells */
-  for (int64_t i=1,last_id = cells[sort_idx[num_cells++]];i<num_pos;++i)
-    if (cells[sort_idx[i]]!=last_id)
+  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
+    if (cell_ids[sort_idx[i]]!=last_id)
       {
 	num_cells++;
-	last_id = cells[sort_idx[i]];
+	last_id = cell_ids[sort_idx[i]];
       }
 
   // Find the next power of 2 large enough to hold table at desired load
@@ -382,7 +381,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
   printf("Platform int size %d\nHash cell size %d bytes\n",
 	 (int)sizeof(int), (int)sizeof(HashCell));
-  max_rank = max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
 #endif
 
   // Hashtable of indices
@@ -390,13 +389,9 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (!htable)
     return -3; // not enough mem.
 
-  uint32_t* cell_start_end = malloc((num_cells+1)*sizeof(uint32_t));
-  if (!cell_start_end)
+  CellParentStart* cells = malloc((num_cells+1)*sizeof(CellParentStart));
+  if (!cells)
     return -1;
-
-  uint32_t *parents = malloc(num_cells*sizeof(uint32_t));
-  if (!parents)
-    return -4; // not enough mem.
 
   uint8_t *ranks = malloc(num_cells*sizeof(uint8_t));
   if (!ranks)
@@ -407,30 +402,30 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (!hfill)
     return -5;
 
-  cell_start_end[0] = 0; // Start point of first cell
+  cells[0].start = 0; // Start point of first cell
 
   // Loop over every (filled) cell
-  for (size_t i=0, cur_end=0;i<num_cells;cell_start_end[++i]=cur_end)
+  for (size_t i=0, cur_end=0;i<num_cells;cells[++i].start=cur_end)
     {
       // Put this in a new domain
       num_doms++;
-      parents[i] = i; // Own domain
+      cells[i].parent = i; // Own domain
       ranks[i] = 0;
 
       const size_t cur_start = cur_end;
-      const int64_t cur_cell_id = cells[sort_idx[cur_start]]; // ID for this cell
+      const int64_t cur_cell_id = cell_ids[sort_idx[cur_start]]; // ID for this cell
 
       // Check for any false images and link to cell of original
       do {
 	const size_t p1 = sort_idx[cur_end];
 	
-	if (cells[p1]!=cur_cell_id)
+	if (cell_ids[p1]!=cur_cell_id)
 	  break; // diff cell
 	
 	if (p1<num_orig) // Original (not an image)
 	  continue; 
 
-	const int64_t orig_cell=cells[pad_idx[p1-num_orig]];
+	const int64_t orig_cell=cell_ids[pad_idx[p1-num_orig]];
 	
 	// Find cell in hash table (must be there)
 	int64_t cur = orig_cell*hprime;
@@ -439,8 +434,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	
 	// Link me (if not already)
 	// Find root of this domain (path compression of disjoint sets)
-	const unsigned int adj_root = find_path_compress(htable[cur].idx, parents),
-	  my_root = parents[i];	
+	const unsigned int adj_root = find_path_compress(htable[cur].idx, cells),
+	  my_root = cells[i].parent;	
 
 	if (adj_root==my_root) // Already linked
 	  continue;
@@ -450,8 +445,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
 	// Disjoint sets union algorithm
 	if (ranks[my_root] < ranks[adj_root]) // Add me to adj
-	  parents[i] = parents[my_root] = adj_root;
-	else if (ranks[htable[cur].ancestor = parents[adj_root] = my_root] == ranks[adj_root]) // Add adj to me
+	  cells[i].parent = cells[my_root].parent = adj_root;
+	else if (ranks[htable[cur].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
 	  ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
 
       } while ((++cur_end)<num_pos);
@@ -463,33 +458,33 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	  
 	  // Look up in hash table (search for cell or 0)
 	  for (uint32_t j=(uint32_t)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=j+1&hmask)
+	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
 	    if (htable[j].cell==wanted_cell)
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
 		ngb_found++;
 #endif
-		const unsigned int my_root = parents[i];
+		const unsigned int my_root = cells[i].parent;
 
 		if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
 		 break;
 
 		const int adj_idx = htable[j].idx;
-		const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, parents);
+		const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
 		
 		/* Other domain to check for connection? */
 		if (adj_root!=my_root && 
 		    connected_pwise(cur_end-cur_start,
-				    cell_start_end[adj_idx+1] - cell_start_end[adj_idx], 
-				    b2, sort_idx+cur_start, sort_idx + cell_start_end[adj_idx], xyz))
+				    cells[adj_idx+1].start - cells[adj_idx].start, 
+				    b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
 		  {
 		    // Connect the domains
 		    num_doms--;
 		    // Disjoint sets union algorithm
 		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
-		      parents[i] = parents[my_root] = adj_root;
-		    else if (ranks[htable[j].ancestor = parents[adj_root] = my_root] == ranks[adj_root]) // Add adj to me
+		      cells[i].parent = cells[my_root].parent = adj_root;
+		    else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
 		      ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
 		  }
 		break;
@@ -506,12 +501,12 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
       while (hfill[cur>>5]&1U<<(cur&31))
 	{
 	  fill_collisions++;
-	  cur = cur+1&hmask;
+	  cur = (cur+1)&hmask;
 	}
 
 #else
       while (hfill[cur>>5]&1U<<(cur&31))
-	cur = cur+1&hmask;
+	cur = (cur+1)&hmask;
 
 #endif
       hfill[cur>>5] |= 1U<<(cur&31);
@@ -522,16 +517,11 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
   for (size_t i=0;i<num_cells; ++i)
     {
-#ifdef DEBUG
-      if (ranks[i]>max_rank)
-	max_rank = ranks[i];
-#endif
-
       /* Find root of this domain (path compression of disjoint sets) */
-      const int64_t domain = find_path_compress(i, parents);
+      const int64_t domain = find_path_compress(i, cells);
 
       // Set all particles in this cell to have this domain
-      for (size_t j=cell_start_end[i];j<cell_start_end[i+1];++j)
+      for (size_t j=cells[i].start;j<cells[i+1].start;++j)
 	{
 	  const size_t p1=sort_idx[j];
 	  if (p1<num_orig) // Ignore images
@@ -539,6 +529,11 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	}
     }
 #ifdef DEBUG
+  int max_rank = ranks[0];
+  for (size_t i=1;i<num_cells;++i)
+    if (ranks[i]>max_rank)
+	max_rank = ranks[i];
+
   float frac_found = ngb_found/ (WALK_NGB_SIZE*num_cells),
     cmp_per_pt = (float)pt_cmp / (float)num_pos;
   printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
@@ -549,11 +544,10 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   max_stack_usage=0;
 #endif
 
-  free(ranks);
-  free(parents);
   free(hfill);
+  free(ranks);
+  free(cells);
   free(htable);
-  free(cell_start_end);
-
+  
   return num_doms;
 }
