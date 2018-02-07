@@ -9,8 +9,20 @@
 
 #ifdef DEBUG
   #include <stdio.h>
-static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found, max_rank;
+  static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found, max_rank;
 #endif
+
+// A walk over the 58 cells within sqrt(3) cell widths, and having idx<me, 
+// where idx(i,j,k)=Mi+Nj+k
+#define WALK_NGB_SIZE 58
+#define WALK_NGB(M,N) {\
+    M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, M+N+1, M-N-1, M+N-1, 2*M, 2*N,\
+      2, 2*M+N, M+2*N, 2*M-N, M-2*N, N+2, N-2, M+2, 2*M+1, M-2, 2*N-1, 2*N+1, \
+      2*M-1, 2*M-N-1, 2*M+N-1, M+2*N-1, M-2*N+1, M+N-2, 2*M-N+1, 2*M+N+1, \
+      M+2*N+1, M-N+2, M+N+2, M-N-2, M-2*N-1, 2*M+2*N, 2*N-2, 2*M-2*N, 2*M-2, \
+      2*M+2, 2*N+2, 2*M+N-2, 2*M-N-2, M+2*N+2, 2*M-2*N-1, 2*M+2*N-1, 2*M-2*N+1, \
+      2*M+2*N+1, M-2*N+2, 2*M-N+2, 2*M+N+2, M+2*N-2, M-2*N-2}
+
 
 // Magic number that specifies how full the hash-table should be to be most efficient
 // Hash tables perform very badly beyond about 0.7
@@ -127,18 +139,9 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 
   int num_doms=0, num_cells=0;
 
-  const int walk_ngbs[58] = {M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, 
-			     M+N+1, M-N-1, M+N-1, 2*M, 2*N, 2, 2*M+N, M+2*N, 
-			     2*M-N, M-2*N, N+2, N-2, M+2, 2*M+1, M-2, 2*N-1, 
-			     2*N+1, 2*M-1, 2*M-N-1, 2*M+N-1, M+2*N-1, M-2*N+1, 
-			     M+N-2, 2*M-N+1, 2*M+N+1, M+2*N+1, M-N+2, M+N+2, 
-			     M-N-2, M-2*N-1, 2*M+2*N, 2*N-2, 2*M-2*N, 2*M-2, 
-			     2*M+2, 2*N+2, 2*M+N-2, 2*M-N-2, M+2*N+2, 2*M-2*N-1, 
-			     2*M+2*N-1, 2*M-2*N+1, 2*M+2*N+1, M-2*N+2, 2*M-N+2, 
-			     2*M+N+2, M+2*N-2, M-2*N-2};
+  const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
   const double b2 = b*b;
-
 
   if (!num_pos)
     return 0; // No points => no domains!
@@ -218,13 +221,13 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	  cur_end++;
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      for (int adj=0;adj<58;++adj)
+      for (int adj=0;adj<WALK_NGB_SIZE;++adj)
 	{
 	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
 	  
 	  // Look up in hash table (search for cell or 0)
 	  for (unsigned int j=(unsigned int)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
+	       (hfill[j>>5]>>(j&31)&1);j=j+1&hmask)
 	    if (htable[j].cell==wanted_cell)
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
@@ -265,15 +268,15 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
 
 #ifdef DEBUG
-      while (hfill[cur>>5]&(1U<<(cur&31)))
+      while (hfill[cur>>5]&1U<<(cur&31))
 	{
 	  fill_collisions++;
-	  cur = (cur+1)&hmask;
+	  cur = cur+1&hmask;
 	}
 
 #else
       while (hfill[cur>>5]&(1U<<(cur&31)))
-	cur = (cur+1)&hmask;
+	cur = cur+1&hmask;
 
 #endif
 
@@ -299,7 +302,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 	domains[sort_idx[j]] = domain;
     }
 #ifdef DEBUG
-  float frac_found = ngb_found/ (58.0*num_cells),
+  float frac_found = ngb_found/ (WALK_NGB_SIZE*num_cells),
     cmp_per_pt = (float)pt_cmp / (float)num_pos;
   printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
   printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_cells, 100.0*expected_collisions);
@@ -345,16 +348,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
   int num_doms=0, num_cells=1;
 
-  const int walk_ngbs[58] = {M, 1, N, M+N, M-N, M-1, M+1, N+1, N-1, M-N+1, 
-			     M+N+1, M-N-1, M+N-1, 2*M, 2*N, 2, 2*M+N, M+2*N, 
-			     2*M-N, M-2*N, N+2, N-2, M+2, 2*M+1, M-2, 2*N-1, 
-			     2*N+1, 2*M-1, 2*M-N-1, 2*M+N-1, M+2*N-1, M-2*N+1, 
-			     M+N-2, 2*M-N+1, 2*M+N+1, M+2*N+1, M-N+2, M+N+2, 
-			     M-N-2, M-2*N-1, 2*M+2*N, 2*N-2, 2*M-2*N, 2*M-2, 
-			     2*M+2, 2*N+2, 2*M+N-2, 2*M-N-2, M+2*N+2, 2*M-2*N-1, 
-			     2*M+2*N-1, 2*M-2*N+1, 2*M+2*N+1, M-2*N+2, 2*M-N+2, 
-			     2*M+N+2, M+2*N-2, M-2*N-2};
-  
+  const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
+
   const double b2 = b*b;
 
   if (!num_pos)
@@ -462,13 +457,13 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
       } while ((++cur_end)<num_pos);
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
-      for (int adj=0;adj<58;++adj)
+      for (int adj=0;adj<WALK_NGB_SIZE;++adj)
 	{
 	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
 	  
 	  // Look up in hash table (search for cell or 0)
 	  for (uint32_t j=(uint32_t)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
+	       (hfill[j>>5]>>(j&31)&1);j=j+1&hmask)
 	    if (htable[j].cell==wanted_cell)
 	      {
 		// Found my cell, Find root of this domain (path compression of disjoint sets)
@@ -508,22 +503,21 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
       // Insert my cell into hash-table at the next free spot
       unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
 #ifdef DEBUG
-      while (hfill[cur>>5]&(1U<<(cur&31)))
+      while (hfill[cur>>5]&1U<<(cur&31))
 	{
 	  fill_collisions++;
-	  cur = (cur+1)&hmask;
+	  cur = cur+1&hmask;
 	}
 
 #else
-      while (hfill[cur>>5]&(1U<<(cur&31)))
-	cur = (cur+1)&hmask;
+      while (hfill[cur>>5]&1U<<(cur&31))
+	cur = cur+1&hmask;
 
 #endif
       hfill[cur>>5] |= 1U<<(cur&31);
       
       htable[cur].idx = i;
       htable[cur].cell = cur_cell_id;
-
     }
 
   for (size_t i=0;i<num_cells; ++i)
@@ -545,7 +539,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	}
     }
 #ifdef DEBUG
-  float frac_found = ngb_found/ (58.0*num_cells),
+  float frac_found = ngb_found/ (WALK_NGB_SIZE*num_cells),
     cmp_per_pt = (float)pt_cmp / (float)num_pos;
   printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
   printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", 
