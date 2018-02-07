@@ -69,7 +69,7 @@ def pad_cube(pos, boxsize, r_pad):
     return pad_idx, new_pos
 
 
-def fof(pos, rcut, renum=True, log=None):
+def fof(pos, rcut, log=None):
     """
     Return integers for friends-of-friends domains
     """
@@ -114,15 +114,6 @@ def fof(pos, rcut, renum=True, log=None):
         print('3d fof', file=log)
     domains = fof3d(cells, N, M, rcut, sort_idx, pos, log=log)
 
-    if renum:
-        if log is not None:
-            print('Domains in', domains.min(), domains.max(), file=log)
-        u = empty_like(domains)
-        uni = unique(domains)
-        u[uni] = arange(len(uni))
-        domains = u[domains]
-        if log is not None:
-            print('Now domains in', domains.min(), domains.max(), 'Total', len(uni), file=log)
     return domains
 
 def fof_periodic(pos, boxsize, rcut, log=None):

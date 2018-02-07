@@ -141,7 +141,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     cells.
   */
 
-  int num_doms=0, num_cells=0;
+  int num_cells=0;
 
   const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
@@ -173,7 +173,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 
 #ifdef DEBUG
   float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
-  printf("Number of cells %d\n", num_cells);
+  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
   printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
   printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*DESIRED_LOAD, 100.0*actual_load);
 
@@ -187,7 +187,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   if (!htable)
     return -3; // not enough mem.
 
-  CellParentStart* cells = malloc((num_cells+1)*sizeof(CellParentStart));
+  CellParentStart* cells = malloc(num_cells*sizeof(CellParentStart));
 
   if (!cells)
     return -1;
@@ -201,16 +201,13 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   if (!hfill)
     return -5;
 
-
-  cells[0].start = 0;
   // Loop over every (filled) cell
-  for (size_t i=0, cur_end=0;cur_end<num_pos; cells[++i].start = cur_end)
+  for (size_t i=0, cur_end=0;cur_end<num_pos; ++i)
     {
       // Put this in a new domain
-      num_doms++;
       ranks[cells[i].parent=i] = 0; // Own domain
 
-      const size_t cur_start = cur_end;
+      const size_t cur_start = cells[i].start = cur_end;
       const int64_t cur_cell_id = cell_ids[sort_idx[cur_end++]]; // ID for this cell
 
       /* Start and end of point data for this cell */
@@ -247,7 +244,6 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
 		  {
 
 		    // Connect the domains
-		    num_doms--;
 		    // Disjoint sets union algorithm
 		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
 		      cells[i].parent = cells[my_root].parent = adj_root;
@@ -286,14 +282,28 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       htable[cur].ancestor = cells[i].parent;
     }
 
-  for (size_t i=0;i<num_cells; ++i)
+  free(hfill);
+  free(htable);
+
+  // Renumber the domains from 0...num_doms-1
+  // A bit hack-y, but use the cell starts to hold the domains
+  int num_doms = 0;
+  for (size_t i=0;i<num_cells;++i)
+    if (cells[i].parent==i)
+      cells[i].start = num_doms++; 
+
+  unsigned int domain = find_path_compress(0, cells);
+  domains[sort_idx[0]] = cells[domain].start;
+  int64_t cur_cell_id = cell_ids[sort_idx[0]];
+  for (size_t i=0,j=1;j<num_pos; ++j)
     {
       /* Find root of this domain (path compression of disjoint sets) */
-      const unsigned int domain = find_path_compress(i, cells);
-
-      // Set all particles in this cell to have this domain
-      for (size_t j=cells[i].start;j<cells[i+1].start;++j)
-	domains[sort_idx[j]] = domain;
+      if (cell_ids[sort_idx[j]]!=cur_cell_id)
+	{
+	  cur_cell_id = cell_ids[sort_idx[j]];
+	  domain = find_path_compress(++i, cells);
+	}
+      domains[sort_idx[j]] = cells[domain].start; // see hack above
     }
 #ifdef DEBUG
   int max_rank = ranks[0];
@@ -310,10 +320,8 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   max_stack_usage=0;
 #endif
 
-  free(hfill);
   free(ranks);
   free(cells);
-  free(htable);
 
   return num_doms;
 }
@@ -345,7 +353,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
     cells.
   */
 
-  int num_doms=0, num_cells=1;
+  int num_cells=1;
 
   const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
@@ -375,7 +383,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
 #ifdef DEBUG
   float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
-  printf("Number of cells %d\n", num_cells);
+  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
   printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
   printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*DESIRED_LOAD, 100.0*actual_load);
 
@@ -389,7 +397,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (!htable)
     return -3; // not enough mem.
 
-  CellParentStart* cells = malloc((num_cells+1)*sizeof(CellParentStart));
+  CellParentStart* cells = malloc(num_cells*sizeof(CellParentStart));
   if (!cells)
     return -1;
 
@@ -402,17 +410,15 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   if (!hfill)
     return -5;
 
-  cells[0].start = 0; // Start point of first cell
+
 
   // Loop over every (filled) cell
-  for (size_t i=0, cur_end=0;i<num_cells;cells[++i].start=cur_end)
+  for (size_t i=0, cur_end=0;i<num_cells;++i)
     {
       // Put this in a new domain
-      num_doms++;
-      cells[i].parent = i; // Own domain
-      ranks[i] = 0;
+      ranks[cells[i].parent = i] = 0; // Own domain
 
-      const size_t cur_start = cur_end;
+      const size_t cur_start =  cells[i].start = cur_end;
       const int64_t cur_cell_id = cell_ids[sort_idx[cur_start]]; // ID for this cell
 
       // Check for any false images and link to cell of original
@@ -441,8 +447,6 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	  continue;
 	
 	// Connected (since my image in both cells)
-	num_doms--;
-
 	// Disjoint sets union algorithm
 	if (ranks[my_root] < ranks[adj_root]) // Add me to adj
 	  cells[i].parent = cells[my_root].parent = adj_root;
@@ -480,7 +484,6 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 				    b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
 		  {
 		    // Connect the domains
-		    num_doms--;
 		    // Disjoint sets union algorithm
 		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
 		      cells[i].parent = cells[my_root].parent = adj_root;
@@ -515,18 +518,31 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
       htable[cur].cell = cur_cell_id;
     }
 
-  for (size_t i=0;i<num_cells; ++i)
-    {
-      /* Find root of this domain (path compression of disjoint sets) */
-      const int64_t domain = find_path_compress(i, cells);
+  free(hfill);
+  free(htable);
 
-      // Set all particles in this cell to have this domain
-      for (size_t j=cells[i].start;j<cells[i+1].start;++j)
+  // Renumber the domains from 0...num_doms-1
+  // A bit hack-y, but use the cell starts to hold the domains
+  int num_doms = 0;
+  for (size_t i=0;i<num_cells;++i)
+    if (cells[i].parent==i)
+      cells[i].start = num_doms++; 
+
+  unsigned int domain = find_path_compress(0, cells);
+  if (sort_idx[0]<num_orig)
+    domains[sort_idx[0]] = cells[domain].start;
+  int64_t cur_cell_id = cell_ids[sort_idx[0]];
+  for (size_t i=0,j=1;j<num_pos; ++j)
+    {
+      const int64_t p1=sort_idx[j];
+      /* Find root of this domain (path compression of disjoint sets) */
+      if (cell_ids[p1]!=cur_cell_id)
 	{
-	  const size_t p1=sort_idx[j];
-	  if (p1<num_orig) // Ignore images
-	    domains[p1] = domain;
+	  cur_cell_id = cell_ids[p1];
+	  domain = find_path_compress(++i, cells);
 	}
+      if (p1<num_orig) // Ignore images
+	domains[p1] = cells[domain].start; // see hack above
     }
 #ifdef DEBUG
   int max_rank = ranks[0];
@@ -544,10 +560,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   max_stack_usage=0;
 #endif
 
-  free(hfill);
   free(ranks);
   free(cells);
-  free(htable);
   
   return num_doms;
 }

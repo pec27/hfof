@@ -37,19 +37,20 @@ def time_kdcount():
     cells = get_cells([(0.5, 0.2, 0.1)], 0.333, 3, 11, log)
 
 #    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
-    for i in [128,256,512,1024]:
+    for i in [128,256]:#,512,1024]:
         pos = get_sim_pos(i)
 
         rcut = 0.2/i
 
-        domains = fof(pos, rcut, log=log, renum=False)
+        domains = fof(pos, rcut, log=log)
 
         print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
+
         boxsize = 1.0
         domains = fof_periodic(pos, boxsize, rcut, log=log)
 
         print('Number of unique domains {:,}'.format(len(unique(domains))),file=log)
-
+        
         continue
 
         print('Trying with kdcount',file=log)
@@ -57,6 +58,7 @@ def time_kdcount():
         d = dataset(pos)#, boxsize=1.0)
         f = kdfof(d, rcut)
         print('kdcount size {:,}'.format(len(f.length)), file=log)
+        continue
         print('Trying with periodic kdcount',file=log)
         d = dataset(pos, boxsize=1.0)
         f = kdfof(d, rcut)
