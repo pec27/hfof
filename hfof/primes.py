@@ -19,7 +19,7 @@ def _miller_rabin(a, n, u, t):
     if pow(a, u, n) == 1:
         return False
     for j in range(t):
-        if pow(a, u*(2<<j), n) == n-1:
+        if pow(a, u*(1<<j), n) == n-1:
             return False
     return True # n  is definitely composite
  
@@ -28,11 +28,11 @@ def is_prime(n):
     Technically probababilistic prime testing method (Miller-Rabin), but 
     known to be exact for n<2^31
     """
-
-    if n in (0,1,2,3,5,7):
+    if n==1:
+        return False
+    elif n in (2,3,5,7):
         return True
-
-    if any((n % p)==0 for p in (2,3,5,7)):
+    elif any((n % p)==0 for p in (2,3,5,7)):
         return False
 
     u, t = n - 1, 0
@@ -59,3 +59,22 @@ if __name__=='__main__':
     best = smallest_prime_atleast(n)
     print('Searched', best-n, 'composites')
     print('Use', best)
+
+    # Better primes
+    tab0 = 1024
+    from math import pi, e
+    hash_primes = []
+    for i in range(23):
+        hsize = tab0<<i
+        guess = hsize/pi
+        nprime = smallest_prime_atleast(int(guess))
+        guess = 2*guess -nprime # look lower as well as higher
+        nprime2 = smallest_prime_atleast(int(guess))
+        if guess-nprime2<nprime-guess:
+            nprime = nprime2
+
+        print(hsize, nprime)
+        hash_primes.append(nprime)
+    print('{'+', '.join(str(N) for N in hash_primes)+'};')
+    print('{'+','.join(hex(N) for N in hash_primes)+'};')
+

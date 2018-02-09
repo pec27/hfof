@@ -33,9 +33,9 @@ static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_foun
 #define MAX_TAB_NO 23 // number of table sizes
 static const int64_t TAB_START = 1024; // Corresponds to smallest hash table (& hash prime)
 static const uint32_t HASH_PRIMES[MAX_TAB_NO] = 
-  {337, 653, 1319, 2609, 5273, 10433, 20849, 41729, 83449, 166799, 333769, 
-   667553, 1335053, 2670191, 5340359, 10680737, 21361421, 42722833, 85445677, 
-   170891297, 341782613, 683565317, 1367130521};
+  {331, 653, 1307, 2609, 5209, 10427, 20849, 41719, 83443, 166867, 333769, 
+   667547, 1335043, 2670181, 5340359, 10680707, 21361421, 42722831, 85445653, 
+   170891291, 341782633, 683565271, 1367130559};
 
 typedef struct {
   uint32_t parent, start; // Parent (disjoint set) and start point per cell
