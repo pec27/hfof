@@ -23,6 +23,18 @@ static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_foun
       2*M+2, 2*N+2, 2*M+N-2, 2*M-N-2, M+2*N+2, 2*M-2*N-1, 2*M+2*N-1, 2*M-2*N+1, \
       2*M+2*N+1, M-2*N+2, 2*M-N+2, 2*M+N+2, M+2*N-2, M-2*N-2}
 
+// hashed position of the neighbour (i.e. (ngb*prime) mod N)
+#define HASH_NGB(A,P,M) {\
+    A[0]*P&M, A[1]*P&M, A[2]*P&M, A[3]*P&M, A[4]*P&M, A[5]*P&M, A[6]*P&M, \
+      A[7]*P&M, A[8]*P&M, A[9]*P&M, A[10]*P&M, A[11]*P&M, A[12]*P&M, A[13]*P&M,\
+      A[14]*P&M, A[15]*P&M, A[16]*P&M, A[17]*P&M, A[18]*P&M, A[19]*P&M, \
+      A[20]*P&M, A[21]*P&M, A[22]*P&M, A[23]*P&M, A[24]*P&M, A[25]*P&M, \
+      A[26]*P&M, A[27]*P&M, A[28]*P&M, A[29]*P&M, A[30]*P&M, A[31]*P&M, \
+      A[32]*P&M, A[33]*P&M, A[34]*P&M, A[35]*P&M, A[36]*P&M, A[37]*P&M, \
+      A[38]*P&M, A[39]*P&M, A[40]*P&M, A[41]*P&M, A[42]*P&M, A[43]*P&M, \
+      A[44]*P&M, A[45]*P&M, A[46]*P&M, A[47]*P&M, A[48]*P&M, A[49]*P&M, \
+      A[50]*P&M, A[51]*P&M, A[52]*P&M, A[53]*P&M, A[54]*P&M, A[55]*P&M, \
+      A[56]*P&M, A[57]*P&M}
 
 // Magic number that specifies how full the hash-table should be to be most efficient
 // Hash tables perform very badly beyond about 0.7
@@ -171,6 +183,8 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   const unsigned int hprime = HASH_PRIMES[tab_size],
     hmask = hsize-1;
 
+  const unsigned int hash_ngb[WALK_NGB_SIZE] = HASH_NGB(walk_ngbs, hprime, hmask);
+
 #ifdef DEBUG
   float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
   printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
@@ -197,7 +211,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     return -4; // not enough mem.
 
   // Hash table fill bits
-  uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
+  uint32_t *hfill = calloc(hsize>>5, sizeof(uint32_t));
   if (!hfill)
     return -5;
 
@@ -210,71 +224,64 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
       const size_t cur_start = cells[i].start = cur_end;
       const int64_t cur_cell_id = cell_ids[sort_idx[cur_end++]]; // ID for this cell
 
+      unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
+
       /* Start and end of point data for this cell */
       while (cur_end<num_pos && cell_ids[sort_idx[cur_end]]==cur_cell_id)
 	cur_end++;
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       for (int adj=0;adj<WALK_NGB_SIZE;++adj)
-	{
-	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
-	  
-	  // Look up in hash table (search for cell or 0)
-	  for (unsigned int j=(unsigned int)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
-	    if (htable[j].cell==wanted_cell)
-	      {
-		// Found my cell, Find root of this domain (path compression of disjoint sets)
+	for (unsigned int j=(cur - hash_ngb[adj])&hmask; // Look up in hash table (search for cell or 0)
+	     hfill[j>>5]>>(j&31)&1;j=(j+1)&hmask)
+	  if (htable[j].cell==cur_cell_id - walk_ngbs[adj]) 
+	    {
+	      // Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
-		ngb_found++;
+	      ngb_found++;
 #endif
-		const unsigned int my_root = cells[i].parent;
-
-		if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
-		 break;
-
-		const int adj_idx = htable[j].idx;
-		const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
-		
-		/* Other domain to check for connection? */
-		if (adj_root!=my_root && 
-		    connected_pwise(cur_end-cur_start,
-				    cells[adj_idx+1].start - cells[adj_idx].start, 
-				    b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
-		  {
-
-		    // Connect the domains
-		    // Disjoint sets union algorithm
-		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
-		      cells[i].parent = cells[my_root].parent = adj_root;
-		    else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
-		      ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
-		  }
+	      const unsigned int my_root = cells[i].parent;
+	      
+	      if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
 		break;
-	      }
+	      
+	      const int adj_idx = htable[j].idx;
+	      const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
+	      
+	      /* Other domain to check for connection? */
+	      if (adj_root!=my_root && 
+		  connected_pwise(cur_end-cur_start,
+				  cells[adj_idx+1].start - cells[adj_idx].start, 
+				  b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
+		{
+		  
+		  // Connect the domains
+		  // Disjoint sets union algorithm
+		  if (ranks[my_root] < ranks[adj_root]) // Add me to adj
+		    cells[i].parent = cells[my_root].parent = adj_root;
+		  else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
+		    ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
+		}
+	      break;
+	    }
 #ifdef DEBUG
 	  else
-	      search_collisions++; // Wrong cell, move to next
+	    search_collisions++; // Wrong cell, move to next
 #endif
-	}
-
+  
       // Insert my cell into hash-table at the next free spot
-      unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
-
 #ifdef DEBUG
       while (hfill[cur>>5]&1U<<(cur&31))
 	{
 	  fill_collisions++;
 	  cur = (cur+1)&hmask;
 	}
-
+      
 #else
       while (hfill[cur>>5]&(1U<<(cur&31)))
 	cur = (cur+1)&hmask;
-
 #endif
-
-
+      
       hfill[cur>>5] |= 1U<<(cur&31);
       
       htable[cur].idx = i;
@@ -381,6 +388,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
   const int64_t hsize = TAB_START<<tab_size;
   const unsigned int hprime = HASH_PRIMES[tab_size], hmask = hsize-1;
 
+  const unsigned int hash_ngb[WALK_NGB_SIZE] = HASH_NGB(walk_ngbs, hprime, hmask);
+
 #ifdef DEBUG
   float actual_load = (float)num_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
   printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
@@ -421,6 +430,8 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
       const size_t cur_start =  cells[i].start = cur_end;
       const int64_t cur_cell_id = cell_ids[sort_idx[cur_start]]; // ID for this cell
 
+      unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask; // desired spot in hash table
+
       // Check for any false images and link to cell of original
       do {
 	const size_t p1 = sort_idx[cur_end];
@@ -431,16 +442,16 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	if (p1<num_orig) // Original (not an image)
 	  continue; 
 
-	const int64_t orig_cell=cell_ids[pad_idx[p1-num_orig]];
+	const int64_t orig_cell = cell_ids[pad_idx[p1-num_orig]];
 	
 	// Find cell in hash table (must be there)
-	int64_t cur = orig_cell*hprime;
-	while (htable[cur&=hmask].cell!=orig_cell)
-	  cur++;
+	unsigned int j = (unsigned int)orig_cell*hprime;
+	while (htable[j&=hmask].cell!=orig_cell)
+	  j++;
 	
 	// Link me (if not already)
 	// Find root of this domain (path compression of disjoint sets)
-	const unsigned int adj_root = find_path_compress(htable[cur].idx, cells),
+	const unsigned int adj_root = find_path_compress(htable[j].idx, cells),
 	  my_root = cells[i].parent;	
 
 	if (adj_root==my_root) // Already linked
@@ -450,56 +461,51 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 	// Disjoint sets union algorithm
 	if (ranks[my_root] < ranks[adj_root]) // Add me to adj
 	  cells[i].parent = cells[my_root].parent = adj_root;
-	else if (ranks[htable[cur].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
+	else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
 	  ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
 
       } while ((++cur_end)<num_pos);
 
       // Loop over adjacent cells (within sqrt(3)*cell_width)
       for (int adj=0;adj<WALK_NGB_SIZE;++adj)
-	{
-	  const int64_t wanted_cell = cur_cell_id - walk_ngbs[adj];
-	  
-	  // Look up in hash table (search for cell or 0)
-	  for (uint32_t j=(uint32_t)wanted_cell*hprime&hmask;
-	       (hfill[j>>5]>>(j&31)&1);j=(j+1)&hmask)
-	    if (htable[j].cell==wanted_cell)
-	      {
-		// Found my cell, Find root of this domain (path compression of disjoint sets)
+	for (unsigned int j=(cur - hash_ngb[adj])&hmask; // Look up in hash table (search for cell or 0)
+	     hfill[j>>5]>>(j&31)&1;j=(j+1)&hmask)
+	  if (htable[j].cell==cur_cell_id - walk_ngbs[adj]) 
+	    {
+	      // Found my cell, Find root of this domain (path compression of disjoint sets)
 #ifdef DEBUG
-		ngb_found++;
+	      ngb_found++;
 #endif
-		const unsigned int my_root = cells[i].parent;
-
-		if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
-		 break;
-
-		const int adj_idx = htable[j].idx;
-		const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
-		
-		/* Other domain to check for connection? */
-		if (adj_root!=my_root && 
-		    connected_pwise(cur_end-cur_start,
-				    cells[adj_idx+1].start - cells[adj_idx].start, 
-				    b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
-		  {
-		    // Connect the domains
-		    // Disjoint sets union algorithm
-		    if (ranks[my_root] < ranks[adj_root]) // Add me to adj
-		      cells[i].parent = cells[my_root].parent = adj_root;
-		    else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
-		      ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
-		  }
+	      const unsigned int my_root = cells[i].parent;
+	      
+	      if (my_root==htable[j].ancestor) // Some false negatives (i.e. just an ancestor), never false positives.
 		break;
-	      }
+	      
+	      const int adj_idx = htable[j].idx;
+	      const unsigned int adj_root = htable[j].ancestor = find_path_compress(adj_idx, cells);
+	      
+	      /* Other domain to check for connection? */
+	      if (adj_root!=my_root && 
+		  connected_pwise(cur_end-cur_start,
+				  cells[adj_idx+1].start - cells[adj_idx].start, 
+				  b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
+		{
+		  
+		  // Connect the domains
+		  // Disjoint sets union algorithm
+		  if (ranks[my_root] < ranks[adj_root]) // Add me to adj
+		    cells[i].parent = cells[my_root].parent = adj_root;
+		  else if (ranks[htable[j].ancestor = cells[adj_root].parent = my_root] == ranks[adj_root]) // Add adj to me
+		    ranks[my_root]++; // Arbitrarily choose, in tests add adj to me slightly faster
+		}
+	      break;
+	    }
 #ifdef DEBUG
 	  else
-	      search_collisions++; // Wrong cell, move to next
+	    search_collisions++; // Wrong cell, move to next
 #endif
-	}
 
       // Insert my cell into hash-table at the next free spot
-      unsigned int cur = (unsigned int)cur_cell_id*hprime&hmask;
 #ifdef DEBUG
       while (hfill[cur>>5]&1U<<(cur&31))
 	{
