@@ -186,10 +186,10 @@ static inline int connected_pwise(const int cur_size, const double b2,
 }
 
 typedef struct {
-  int64_t high_id; // ID of cell
+  int64_t block; // ID of cell
   int32_t idx; // index of cell (when ordered)
   unsigned int num_subcells;
-} HashCell;
+} HashBlock;
 
 int fof(const int num_pos, const int N, const int M, const double b, 
 	const double *restrict xyz, const int64_t *restrict cell_ids, 
@@ -216,7 +216,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
     cells.
   */
   
-  int num_cells=0, num_big_cells=1;
+  int num_cells=0, num_blocks=1;
 
   const unsigned int walk_ngbs[13] = WALK_NGB(M,N);
 
@@ -227,9 +227,9 @@ int fof(const int num_pos, const int N, const int M, const double b,
     if (cell_ids[sort_idx[i]]!=last_id)
       {
 	num_cells++;
-	// Check if high bits are different
+	// Check if high bits (i.e. block) is different
 	if ((cell_ids[sort_idx[i]]^last_id)>>6!=0) 
-	  num_big_cells++;
+	  num_blocks++;
 
 	last_id = cell_ids[sort_idx[i]];
       }
@@ -237,7 +237,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 
   // Find the next power of 2 large enough to hold table at desired load
   int tab_size=0;
-  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_big_cells) 
+  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_blocks) 
     tab_size++;
 
   if (tab_size==MAX_TAB_NO)
@@ -250,19 +250,19 @@ int fof(const int num_pos, const int N, const int M, const double b,
   const unsigned int hash_ngb[13] = HASH_NGB(walk_ngbs, hprime, hmask);
 
 #ifdef DEBUG
-  float actual_load = (float)num_big_cells / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
-  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_big_cells, num_big_cells*100.0/num_pos, (unsigned int)num_pos);
-  printf("Number of octancts %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
+  float actual_load = (float)num_blocks / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
+  printf("Number of blocks %d, %.2f%% of number of positions (%u)\n", num_blocks, num_blocks*100.0/num_pos, (unsigned int)num_pos);
+  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
   printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
   printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*desired_load, 100.0*actual_load);
 
   printf("Platform int size %d\nHash cell size %d bytes\n",
-	 (int)sizeof(int), (int)sizeof(HashCell));
+	 (int)sizeof(int), (int)sizeof(HashBlock));
   max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
 #endif
 
   // Hashtable of indices
-  HashCell *htable = malloc(hsize * sizeof(HashCell));
+  HashBlock *htable = malloc(hsize * sizeof(HashBlock));
   if (!htable)
     return -3; // not enough mem.
 
@@ -276,17 +276,17 @@ int fof(const int num_pos, const int N, const int M, const double b,
   if (!hfill)
     return -5;
 
-  for (unsigned int cur_start=0, big_cell=0, my_idx=0;
-       cur_start<num_pos;big_cell=my_idx)
+  for (unsigned int cur_start=0, subcell=0, my_cell=0;
+       cur_start<num_pos;subcell=my_cell)
     {
-      const int64_t my_high_id = cell_ids[sort_idx[cur_start]]>>6;
-      const unsigned int my_hash = (unsigned int)my_high_id*hprime&hmask;
+      const int64_t my_block = cell_ids[sort_idx[cur_start]]>>6;
+      const unsigned int my_hash = (unsigned int)my_block*hprime&hmask;
       //      int my_oct_fill = 0;
 
       // Loop over subcells
       for (int cur_end=cur_start+1;
-	   cur_start<num_pos && cell_ids[sort_idx[cur_start]]>>6==my_high_id; // TODO try masks not shifts?
-	   ++my_idx, cur_start=cur_end)
+	   cur_start<num_pos && cell_ids[sort_idx[cur_start]]>>6==my_block; // TODO try masks not shifts?
+	   ++my_cell, cur_start=cur_end)
 	{
 	  const int64_t my_id = cell_ids[sort_idx[cur_start]];
 	  // Find all points in subcell
@@ -294,18 +294,18 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	    cur_end++;
 
 	  // Put in own domain
-	  cells[my_idx].start = cur_start;
-	  cells[my_idx].parent = my_idx; 
-	  unsigned int my64 = cells[my_idx].subcell = (unsigned int)my_id & 63;
-	  cells[my_idx].rank = 0;
+	  cells[my_cell].start = cur_start;
+	  cells[my_cell].parent = my_cell; 
+	  unsigned int my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
+	  cells[my_cell].rank = 0;
 
 	  const uint64_t *nbits = ngb_bits + (h_ngb[my64]+my64);
 	  // Subcell done, connect to previous subcells (if any)
-	  for (unsigned int adj_idx=my_idx;adj_idx!=big_cell;) 
+	  for (unsigned int adj_idx=my_cell;adj_idx!=subcell;) 
 	    {
 	      if (!(*nbits>>cells[--adj_idx].subcell&1))
 		continue;
-	      const unsigned int my_root = cells[my_idx].parent,
+	      const unsigned int my_root = cells[my_cell].parent,
 		adj_root = find_path_compress(adj_idx, cells);
 	      
 	      if (adj_root!=my_root && 
@@ -314,7 +314,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 		{
 		  // Connect the domains - Disjoint sets union algorithm
 		  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
-		    cells[my_idx].parent = cells[my_root].parent = adj_root;
+		    cells[my_cell].parent = cells[my_root].parent = adj_root;
 		  else if (cells[cells[adj_root].parent = my_root].rank == cells[adj_root].rank) // Add adj to me
 		    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
 		}
@@ -324,7 +324,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	  for (unsigned int mu=quad_masks[my64], adj;(adj=mu&0xF)!=13;mu>>=4, nbits++)
 	    for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
 		 hfill[adj_hash>>5]>>(adj_hash&31)&1; adj_hash=(adj_hash+1)&hmask)
-	      if (htable[adj_hash].high_id==my_high_id-walk_ngbs[adj]) // My neighbour or collision?
+	      if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
 		{
 #ifdef DEBUG
 		  ngb_found++;
@@ -337,7 +337,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 			continue;
 
 		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
-			my_root = cells[my_idx].parent;
+			my_root = cells[my_cell].parent;
 
 		      if (adj_root!=my_root &&
 			  connected_pwise(cur_end-cur_start, b2, sort_idx+cur_start, 
@@ -346,7 +346,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 
 			  // Connect the domains - Disjoint sets union algorithm
 			  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
-			    cells[my_idx].parent = cells[my_root].parent = adj_root;
+			    cells[my_cell].parent = cells[my_root].parent = adj_root;
 			  else if (cells[cells[adj_root].parent = my_root].rank == cells[adj_root].rank) // Add adj to me
 			    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
 			}
@@ -375,9 +375,9 @@ int fof(const int num_pos, const int N, const int M, const double b,
       
       hfill[cur>>5] |= 1U<<(cur&31);
       
-      htable[cur].idx = big_cell;
-      htable[cur].high_id = my_high_id;
-      htable[cur].num_subcells = my_idx - big_cell;
+      htable[cur].idx = subcell;
+      htable[cur].block = my_block;
+      htable[cur].num_subcells = my_cell - subcell;
     }
   
       
@@ -414,13 +414,12 @@ int fof(const int num_pos, const int N, const int M, const double b,
   float frac_found = ngb_found/ (13.0*num_cells),
     cmp_per_pt = (float)pt_cmp / (float)num_pos;
   printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
-  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_big_cells, 100.0*expected_collisions);
+  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_blocks, 100.0*expected_collisions);
 
   printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
   max_stack_usage=0;
 #endif
 
-  //  free(ranks);
   free(cells);
 
   return num_doms;
