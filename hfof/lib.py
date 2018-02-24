@@ -32,13 +32,23 @@ def _initlib():
     func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
+    # Find the block+cell for each point
+    # void blocks_cells(const double *pos, const int num_pos, 
+    #                   const double inv_cell_width, const int N, const int M, int64_t *out)
+    func = _libhfof.blocks_cells
+    func.restype = None
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
+                     ctypes.c_int, ctypes.c_int, ndpointer(int64)]
+
     # Friends of Friends linking
-    # int fof_link_cells(const int num_pos, const int N, const int M, const double b, 
-    #		   const double *restrict xyz, const int64_t *restrict cells, 
-    #		   const int64_t *restrict sort_idx, int32_t *restrict domains)
-    func = _libhfof.fof_link_cells
+    # int fof(const int num_pos, const int N, const int M, const double b, 
+    #	      const double *restrict xyz, const int64_t *restrict cells, 
+    #	      const int64_t *restrict sort_idx, int32_t *restrict domains)
+    func = _libhfof.fof
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int32)]
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, 
+                     ndpointer(float64), ndpointer(int64),ndpointer(int64), 
+                     ndpointer(int32)]
 
     # Friends of Friends periodic linking
     # int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, 
@@ -53,13 +63,13 @@ def _initlib():
     return _libhfof
 
 
-def fof3d(cells, n, m, rcut, sort_idx, xyz, log=None):
+def fof3d(blocks_cells, n, m, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
-    cells = require(cells, dtype=int64, requirements=['C'])
+    blocks_cells = require(blocks_cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(npos, dtype=int32)
     lib = _initlib()
-    res = lib.fof_link_cells(npos, int(n), int(m), rcut, xyz, cells, sort_idx, out)
+    res = lib.fof(npos, int(n), int(m), rcut, xyz, blocks_cells, sort_idx, out)
 
     if res<0:
         raise Exception('Error with code %d'%res)
@@ -97,3 +107,21 @@ def get_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
     res = lib.find_lattice(p, npts, inv_cell_width, Ny, Nx, out)
     return out
 
+
+def get_blocks_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
+    """
+    For an (N,3) array of points in [0,1), find index 
+    idx = block<<6 | cell
+    where 
+    ix,iy,iz = (int)(pts[x,y,z]*inv_cell_width)
+    block := (ix>>2)*Nx + (iy>>2)*Ny + (iz>>2) 
+    cell := (ix&3)<<4 | (iy&3)<<2 | (iz&0x3) # (i.e. 0-63)
+    """
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C']) 
+    npts = p.shape[0]
+    assert(p.shape ==(npts,3))
+    out = empty(npts, dtype=int64)
+
+    res = lib.blocks_cells(p, npts, inv_cell_width, Ny, Nx, out)
+    return out

@@ -5,7 +5,7 @@ Peter Creasey - Oct 2016
 
 """
 from __future__ import absolute_import, print_function
-from .lib import fof3d, get_cells, fof3d_periodic
+from .lib import fof3d, get_cells, fof3d_periodic, get_blocks_cells
 from .primes import smallest_prime_atleast
 from numpy import flatnonzero, concatenate, argsort, array, floor, zeros, \
     empty_like, unique, arange
@@ -86,8 +86,9 @@ def fof(pos, rcut, log=None):
     cell_width = float(rcut / (3**0.5))
     
     inv_cell_width = float(1.0/cell_width)
-    
-    n_min = int(math.ceil(max_dim*inv_cell_width))+2
+    inv_block_width = 0.25 * inv_cell_width
+
+    n_min = int(math.ceil(max_dim*inv_block_width))+2
     if log is not None:
         print('Finding primes', file=log)
     N = smallest_prime_atleast(n_min) # Make sure a prime
@@ -105,14 +106,14 @@ def fof(pos, rcut, log=None):
         print('rcut', rcut,file=log)
     
         print('Finding cells', file=log)
-    cells = get_cells(pos, inv_cell_width, N, M, log)
+    blocks_cells = get_blocks_cells(pos, inv_cell_width, N, M, log)
     
     if log is not None:
         print('Sorting cells', file=log)        
-    sort_idx = argsort(cells)
+    sort_idx = argsort(blocks_cells)
     if log is not None:
         print('3d fof', file=log)
-    domains = fof3d(cells, N, M, rcut, sort_idx, pos, log=log)
+    domains = fof3d(blocks_cells, N, M, rcut, sort_idx, pos, log=log)
 
     return domains
 
