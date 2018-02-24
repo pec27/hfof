@@ -4,13 +4,14 @@
 # -march=native gives me an extra 10%
 CC = gcc -Wall -fPIC -shared -std=c99 -march=native -O2
 SRC = src/*.c
+HDR = src/fof.h
 LIB = build/libhfof.so
 
 all: build ${LIB}
 build:
 	mkdir -p build
 
-${LIB}: ${SRC} Makefile
+${LIB}: ${SRC} ${HDR} Makefile
 	${CC} -o ${LIB} ${SRC}
 clean:
 	rm -rf build
