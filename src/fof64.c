@@ -10,7 +10,7 @@
 static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found;
 #endif
 
-// A walk over the 13 cells within sqrt(3) cell widths, and having idx<me, 
+// A walk over the 13 blocks within sqrt(3) cell widths, and having idx<me, 
 // where idx(i,j,k)=Mi+Nj+k
 #define WALK_NGB(M,N) {\
     N, M, 1, M+N, N+1, M-N, N-1, M+1, M-1, M+N-1, M-N-1, M-N+1, M+N+1}
@@ -103,7 +103,7 @@ static const uint64_t ngb_bits[284] = {
 /* SubCells */
 typedef struct {
   uint32_t parent, start; // Parent (disjoint set) and start point per cell
-  unsigned int octant:8, rank:8; // 1-8
+  unsigned int subcell:8, rank:8; // 1-8
 } SubCell;
 
 
@@ -149,11 +149,11 @@ static inline unsigned int find_path_compress(const unsigned int idx, SubCell *r
   return domain;
 }
 
-static int connected_pwise(const int cur_size, const int adj_size,
-			   const double b2,
-			   const int64_t* restrict cur_idx,
-			   const int64_t *restrict adj_idx,
-			   const double *restrict xyz)
+static inline int connected_pwise(const int cur_size, const double b2,
+				  const int64_t* restrict cur_idx,
+				  const int64_t *restrict adj_idx,
+				  const double *restrict xyz,
+				  const int64_t *restrict cells)
 {
   /*
     Check pairwise for any connections, i.e. any point p1 in my
@@ -161,15 +161,15 @@ static int connected_pwise(const int cur_size, const int adj_size,
 
     Returns 1 if connected, 0 otherwise
   */
-
-  for (int my_k=cur_size;my_k;--my_k, cur_idx++)
+  const int64_t adj_cell = cells[*adj_idx];
+  do
     {
-      const double *xyz1 = &xyz[(*cur_idx)*3];
-      const int64_t* p2 = adj_idx;      
-      for (int adj_k=adj_size;
-	   adj_k; --adj_k, p2++)
+      const double *xyz2 = &xyz[(*adj_idx)*3];
+      const int64_t* p1 = cur_idx;      
+      for (int my_k=cur_size;my_k;--my_k, p1++)
 	{
-	  const double *xyz2 = &xyz[(*p2)*3];
+	  const double *xyz1 = &xyz[(*p1)*3];
+	  
 	  const double dx = xyz2[0]-xyz1[0],
 	    dy = xyz2[1]-xyz1[1],
 	    dz = xyz2[2]-xyz1[2];
@@ -181,7 +181,7 @@ static int connected_pwise(const int cur_size, const int adj_size,
 	  
 	  return 1;
 	}
-    }
+    } while (cells[*++adj_idx]==adj_cell);
   return 0;
 }
 
@@ -283,36 +283,34 @@ int fof(const int num_pos, const int N, const int M, const double b,
       const unsigned int my_hash = (unsigned int)my_high_id*hprime&hmask;
       //      int my_oct_fill = 0;
 
-      // Loop over octants
+      // Loop over subcells
       for (int cur_end=cur_start+1;
 	   cur_start<num_pos && cell_ids[sort_idx[cur_start]]>>6==my_high_id; // TODO try masks not shifts?
 	   ++my_idx, cur_start=cur_end)
 	{
 	  const int64_t my_id = cell_ids[sort_idx[cur_start]];
-	  // Find all points in octant
+	  // Find all points in subcell
 	  while (cur_end<num_pos && cell_ids[sort_idx[cur_end]]==my_id)
 	    cur_end++;
 
 	  // Put in own domain
-	  cells[my_idx].parent = my_idx; 
 	  cells[my_idx].start = cur_start;
-	  unsigned int my64 = cells[my_idx].octant = (unsigned int)my_id & 63;
-
+	  cells[my_idx].parent = my_idx; 
+	  unsigned int my64 = cells[my_idx].subcell = (unsigned int)my_id & 63;
 	  cells[my_idx].rank = 0;
 
 	  const uint64_t *nbits = ngb_bits + (h_ngb[my64]+my64);
-	  // Octant done, connect to previous octants (if any)
+	  // Subcell done, connect to previous subcells (if any)
 	  for (unsigned int adj_idx=my_idx;adj_idx!=big_cell;) 
 	    {
-	      if (!(*nbits>>cells[--adj_idx].octant&1))
+	      if (!(*nbits>>cells[--adj_idx].subcell&1))
 		continue;
 	      const unsigned int my_root = cells[my_idx].parent,
 		adj_root = find_path_compress(adj_idx, cells);
 	      
 	      if (adj_root!=my_root && 
-		  connected_pwise(cur_end-cur_start,
-				  cells[adj_idx+1].start - cells[adj_idx].start, 
-				  b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
+		  connected_pwise(cur_end-cur_start, b2, sort_idx+cur_start, 
+				  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 		{
 		  // Connect the domains - Disjoint sets union algorithm
 		  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
@@ -331,20 +329,19 @@ int fof(const int num_pos, const int N, const int M, const double b,
 #ifdef DEBUG
 		  ngb_found++;
 #endif
-		  // First draft just try to connect every octant pairwise (backwards)
+		  // First draft just try to connect every subcell pairwise (backwards)
 		  for (unsigned int adj_idx = htable[adj_hash].idx+htable[adj_hash].num_subcells;
 		       adj_idx!=htable[adj_hash].idx; )
 		    {
-		      if (!(nbits[1]>>cells[--adj_idx].octant&1))
+		      if (!(nbits[1]>>cells[--adj_idx].subcell&1))
 			continue;
 
 		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
 			my_root = cells[my_idx].parent;
 
 		      if (adj_root!=my_root &&
-			  connected_pwise(cur_end-cur_start,
-					  cells[adj_idx+1].start - cells[adj_idx].start, 
-					  b2, sort_idx+cur_start, sort_idx + cells[adj_idx].start, xyz))
+			  connected_pwise(cur_end-cur_start, b2, sort_idx+cur_start, 
+					  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 			{
 
 			  // Connect the domains - Disjoint sets union algorithm
