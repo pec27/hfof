@@ -24,6 +24,12 @@ def _initlib():
     print('Loading libhfof - C functions for FoF calculations', name)
     _libhfof = ctypes.cdll.LoadLibrary(name)
 
+    # minimum and maximum per cell
+    # void get_min_max(const double *pos, const int num_pos, double *restrict out)
+    func = _libhfof.get_min_max
+    func.restype = None
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ndpointer(ctypes.c_double)]
+    
     # Find the cell for each point
     # void find_lattice(const double *pos, const int num_pos, 
     #                   const double inv_cell_width, const int N, const int M, int64_t *out)
@@ -123,7 +129,15 @@ def get_blocks_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
     p = require(pts, dtype=float64, requirements=['C']) 
     npts = p.shape[0]
     assert(p.shape ==(npts,3))
+
     out = empty(npts, dtype=int64)
 
     res = lib.blocks_cells(p, npts, inv_cell_width, Ny, Nx, out)
     return out
+
+def minmax(pts):
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C']) 
+    out = empty(6, dtype=float64)
+    res = lib.get_min_max(p, len(p), out)
+    return out[:3], out[3:]

@@ -5,7 +5,7 @@ Peter Creasey - Oct 2016
 
 """
 from __future__ import absolute_import, print_function
-from .lib import fof3d, get_cells, fof3d_periodic, get_blocks_cells
+from .lib import fof3d, get_cells, fof3d_periodic, get_blocks_cells, minmax
 from .primes import smallest_prime_atleast
 from numpy import flatnonzero, concatenate, argsort, array, floor, zeros, \
     empty_like, unique, arange
@@ -76,8 +76,11 @@ def fof(pos, rcut, log=None):
     n, dim = pos.shape
     assert(dim==3)
 
-    pos_min = pos.min(axis=0)
-    pos_max = pos.max(axis=0)
+    if log is not None:
+        print('Finding extent', file=log)
+
+        
+    pos_min, pos_max = minmax(pos)
     
     box_dims = pos_max - pos_min
     max_dim = max(box_dims)
@@ -133,8 +136,7 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     n_new = pos.shape[0] # including padded
 
 
-    pos_min = pos.min(axis=0)
-    pos_max = pos.max(axis=0)
+    pos_min, pos_max = minmax(pos)
     
     box_dims = pos_max - pos_min
     max_dim = max(box_dims)
