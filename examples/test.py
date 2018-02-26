@@ -16,7 +16,7 @@ def time_kdcount():
 
 #    for i, ngrid in [(1024, 8867), (128,1107), (256, 2217), (512, 4433)]:
     for i in [128, 128,256,512]:#,1024]:
-        pos = get_sim_pos(i)
+        pos = get_sim_pos(i)-0.5
 
         rcut = 0.2/i
 
@@ -110,7 +110,7 @@ def time_rcut():
 
     b = np.linspace(-2, 0.0, 5)
     i = 128
-    pos = get_sim_pos(i)    - 0.5
+    pos = get_sim_pos(i)#  - 0.5
 
     rcut = 10.0**b / i
     from time import time
@@ -125,7 +125,7 @@ def time_rcut():
         hfof_dt = time()- t0
         time_hfof.append('%.3f'%hfof_dt)
         n_hfof = len(np.unique(domains)) 
-        kdt, foft, ngrps = nbodyshop_fof(i, r)
+        kdt, foft, ngrps = nbodyshop_fof(pos, r)
         assert(ngrps==n_hfof)
 
         time_kd.append(('(%.3f, %.3f)'%(kdt, foft)))
