@@ -12,7 +12,7 @@ def nbodyshop_fof(pos, rcut, period=None):
     if period is None:
         run_str = ' '.join((fof_dbl,'-e %.12f -m 1 -d -v -o /dev/null'%rcut))
     else:
-        run_str = ' '.join((fof_dbl, '-p %.12f'%period, '-e %.12f -m 1 -d -v -o /dev/null'%rcut)
+        run_str = ' '.join((fof_dbl, '-p %.12f'%period, '-e %.12f -m 1 -d -v -o /dev/null'%rcut))
         
     p = subprocess.Popen(run_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
 
