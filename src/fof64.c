@@ -20,10 +20,22 @@ static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_foun
     A[0]*P&M, A[1]*P&M, A[2]*P&M, A[3]*P&M, A[4]*P&M, A[5]*P&M, A[6]*P&M, \
       A[7]*P&M, A[8]*P&M, A[9]*P&M, A[10]*P&M, A[11]*P&M, A[12]*P&M}
 
-static const unsigned int quad_masks[64] = {
-  0xdc743210, 0xdc742310, 0xd986310, 0xd986310, 0xdc430721, 0xdc473201, 0xd968301, 0xd963081, 0xdb5721, 0xdb7521, 0xda851, 0xda581, 0xdb7521, 0xdb7251, 0xda851, 0xda851, 0xdc731420, 0xdc743210, 0xd986310, 0xd983160, 0xdc374102, 0xd743210, 0xd86310, 0xd938610, 0xdb5712, 0xd7521, 0xd851, 0xda581, 0xdb7512, 0xdb7521, 0xda851, 0xda851, 0xd420, 0xd420, 0xd60, 0xd60, 0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 0xd, 0xd2, 0xd2, 0xd, 0xd, 0xd420, 0xd420, 0xd60, 0xd60, 0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 0xd, 0xd2, 0xd2, 0xd, 0xd};
+/*
+  Packed walks - for each (64) subcells, integer with each hex digit (0-12, 
+  0x0-0xC) denotes one of the neighbouring blocks, 13 (0xD) is the stop signal
+*/
+static const unsigned int packed_walk[64] = {
+  0xdc743210, 0xdc742310, 0xd986310, 0xd986310, 0xdc430721, 0xdc473201, 
+  0xd968301, 0xd963081, 0xdb5721, 0xdb7521, 0xda851, 0xda581, 0xdb7521, 
+  0xdb7251, 0xda851, 0xda851, 0xdc731420, 0xdc743210, 0xd986310, 0xd983160, 
+  0xdc374102, 0xd743210, 0xd86310, 0xd938610, 0xdb5712, 0xd7521, 0xd851, 
+  0xda581, 0xdb7512, 0xdb7521, 0xda851, 0xda851, 0xd420, 0xd420, 0xd60, 0xd60, 
+  0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 0xd, 0xd2, 0xd2, 0xd, 0xd, 
+  0xd420, 0xd420, 0xd60, 0xd60, 0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 
+  0xd, 0xd2, 0xd2, 0xd, 0xd};
 
-static const unsigned char h_ngb[65] = {
+// Index for starting point of walk in ngb_bits
+static const unsigned char ngb_start[65] = {
   0, 7, 14, 20, 26, 33, 40, 46, 52, 57, 62, 66, 70, 75, 80, 84, 88, 95, 102, 108, 114, 121, 127, 132, 138, 143, 147, 150, 154, 159, 164, 168, 172, 175, 178, 180, 182, 185, 188, 190, 192, 193, 194, 194, 194, 195, 196, 196, 196, 199, 202, 204, 206, 209, 212, 214, 216, 217, 218, 218, 218, 219, 220, 220, 220};
 
 static const uint64_t ngb_bits[284] = {
@@ -164,7 +176,7 @@ static inline int connected_pwise(const int cur_size, const double b2,
   const int64_t adj_cell = cells[*adj_idx];
   do
     {
-      const double *xyz2 = &xyz[(*adj_idx)*3];
+      const double *xyz2 = &xyz[(*adj_idx++)*3];
       const int64_t* p1 = cur_idx;      
       for (int my_k=cur_size;my_k;--my_k, p1++)
 	{
@@ -181,7 +193,7 @@ static inline int connected_pwise(const int cur_size, const double b2,
 	  
 	  return 1;
 	}
-    } while (cells[*++adj_idx]==adj_cell);
+    } while (cells[*adj_idx]==adj_cell);
   return 0;
 }
 
@@ -266,7 +278,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
   if (!htable)
     return -3; // not enough mem.
 
-  SubCell* cells = malloc(num_cells*sizeof(SubCell));
+  SubCell* cells = malloc(num_cells * sizeof(SubCell));
 
   if (!cells)
     return -1;
@@ -299,11 +311,11 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	  unsigned int my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
 	  cells[my_cell].rank = 0;
 
-	  const uint64_t *nbits = ngb_bits + (h_ngb[my64]+my64);
+	  const uint64_t *connection_mask = ngb_bits + (ngb_start[my64]+my64);
 	  // Subcell done, connect to previous subcells (if any)
 	  for (unsigned int adj_idx=my_cell;adj_idx!=subcell;) 
 	    {
-	      if (!(*nbits>>cells[--adj_idx].subcell&1))
+	      if (!(*connection_mask>>cells[--adj_idx].subcell&1))
 		continue;
 	      const unsigned int my_root = cells[my_cell].parent,
 		adj_root = find_path_compress(adj_idx, cells);
@@ -321,7 +333,10 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	    }
 
 	  // Link to adjacent cells
-	  for (unsigned int mu=quad_masks[my64], adj;(adj=mu&0xF)!=13;mu>>=4, nbits++)
+	  // Loop of neighboring blocks
+	  for (unsigned int walk_blocks=packed_walk[my64], adj=walk_blocks&0xF;
+	       adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
+	    // Find block (or none) in hashtable
 	    for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
 		 hfill[adj_hash>>5]>>(adj_hash&31)&1; adj_hash=(adj_hash+1)&hmask)
 	      if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
@@ -333,8 +348,8 @@ int fof(const int num_pos, const int N, const int M, const double b,
 		  for (unsigned int adj_idx = htable[adj_hash].idx+htable[adj_hash].num_subcells;
 		       adj_idx!=htable[adj_hash].idx; )
 		    {
-		      if (!(nbits[1]>>cells[--adj_idx].subcell&1))
-			continue;
+		      if (!(connection_mask[1]>>cells[--adj_idx].subcell&1))
+			continue; // No |p_me - p_adj|<b possible
 
 		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
 			my_root = cells[my_cell].parent;
