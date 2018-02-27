@@ -109,7 +109,7 @@ def fof(pos, rcut, log=None):
         print('rcut', rcut,file=log)
     
         print('Finding cells', file=log)
-    blocks_cells = get_blocks_cells(pos, inv_cell_width, N, M, log)
+    blocks_cells = get_blocks_cells(pos, inv_cell_width, N, M, pos_min, log)
     
     if log is not None:
         print('Sorting cells', file=log)        

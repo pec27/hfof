@@ -119,19 +119,50 @@ typedef struct {
 } SubCell;
 
 
-void blocks_cells(const double *pos, const int num_pos, const double inv_cell_width, const int ny, const int nx, int64_t *out)
+void blocks_cells(const double min_x, const double min_y, const double min_z, 
+		  const double *restrict pos, const int N, 
+		  const double inv_cell_width, const int ny, const int nx, 
+		  int64_t *restrict out)
 {
   /*
-    Find the bucket index (int)(p[0]*inv_cell_width)*nx + (int)(p[1]*inv_cell_width)*ny + (int)(p[2]*inv_cell_width)
-    for every point
+    Convert (x,y,z) -> to int64_t key := block<<6 | subcell 
+    for N positions
+
+    i.e. blocks of 4x4x4 cells
+
+    where
+      block := (ix>>2)*Nx + (iy>>2)*Ny + (iz>>2) 
+      cell := (ix&3)<<4 | (iy&3)<<2 | (iz&0x3) # (i.e. 0-63)
+    
+      ix := (int64_t)((x - min_x)*inv_cell_width)
+      iy := ...
+
+
+    Args:  
+    min_x  - minimum in x-direction
+    min_y  - minimum in y-direction
+    min_z  - minimum in z-direction
+    pos    - (N,3) double array of xyz
+    N      - number of positions
+    inv_cell_width - inverse of subcell width
+    ny     - prime 
+    nx     - prime (>ny*ny)
+    out    - (N,) int64_t array for output
+
+    returns void
    */
 
   const int64_t NY=ny, NX = nx;
-  for (size_t i=0;i<num_pos;i++)
+
+  // Pre-multiplied top_left corner of box
+  const double x_begin = -min_x*inv_cell_width, 
+    y_begin = -min_y*inv_cell_width, 
+    z_begin = -min_z*inv_cell_width;
+  for (size_t i=0;i<N;i++)
     {
-      int64_t ix = (int64_t)(pos[i*3]*inv_cell_width),
-	iy = (int64_t)(pos[i*3+1]*inv_cell_width),
-	iz = (int64_t)(pos[i*3+2]*inv_cell_width);
+      int64_t ix = (int64_t)(pos[i*3]*inv_cell_width + x_begin),
+	iy = (int64_t)(pos[i*3+1]*inv_cell_width + y_begin),
+	iz = (int64_t)(pos[i*3+2]*inv_cell_width + z_begin);
 
       out[i] = ((ix>>2)*NX+(iy>>2)*NY + (iz>>2))<<6 | (ix&3)<< 4 | (iy&3)<<2 | (iz&3);
 

@@ -39,11 +39,14 @@ def _initlib():
                      ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
     # Find the block+cell for each point
-    # void blocks_cells(const double *pos, const int num_pos, 
-    #                   const double inv_cell_width, const int N, const int M, int64_t *out)
+    # void blocks_cells(const double min_x, const double min_y, const double min_z, 
+    #		  const double *pos, const int num_pos, 
+    #		  const double inv_cell_width, const int ny, const int nx, 
+    #		  int64_t *out)
     func = _libhfof.blocks_cells
     func.restype = None
-    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
+    func.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double,
+                     ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
     # Friends of Friends linking
@@ -116,7 +119,7 @@ def get_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
     return out
 
 
-def get_blocks_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
+def get_blocks_cells(pts, inv_cell_width, Ny, Nx, pts_min, log=sys.stdout):
     """
     For an (N,3) array of points in [0,1), find index 
     idx = block<<6 | cell
@@ -131,8 +134,10 @@ def get_blocks_cells(pts, inv_cell_width, Ny, Nx, log=sys.stdout):
     assert(p.shape ==(npts,3))
 
     out = empty(npts, dtype=int64)
+    min_x, min_y, min_z = pts_min.astype(float64)
 
-    res = lib.blocks_cells(p, npts, inv_cell_width, Ny, Nx, out)
+    res = lib.blocks_cells(min_x, min_y, min_z, p, npts, inv_cell_width, 
+                           Ny, Nx, out)
     return out
 
 def minmax(pts):
