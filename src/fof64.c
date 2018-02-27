@@ -20,97 +20,89 @@ static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_foun
     A[0]*P&M, A[1]*P&M, A[2]*P&M, A[3]*P&M, A[4]*P&M, A[5]*P&M, A[6]*P&M, \
       A[7]*P&M, A[8]*P&M, A[9]*P&M, A[10]*P&M, A[11]*P&M, A[12]*P&M}
 
-/*
-  Packed walks - for each (64) subcells, integer with each hex digit (0-12, 
-  0x0-0xC) denotes one of the neighbouring blocks, 13 (0xD) is the stop signal
-*/
-static const unsigned int packed_walk[64] = {
-  0xdc743210, 0xdc742310, 0xd986310, 0xd986310, 0xdc430721, 0xdc473201, 
-  0xd968301, 0xd963081, 0xdb5721, 0xdb7521, 0xda851, 0xda581, 0xdb7521, 
-  0xdb7251, 0xda851, 0xda851, 0xdc731420, 0xdc743210, 0xd986310, 0xd983160, 
-  0xdc374102, 0xd743210, 0xd86310, 0xd938610, 0xdb5712, 0xd7521, 0xd851, 
-  0xda581, 0xdb7512, 0xdb7521, 0xda851, 0xda851, 0xd420, 0xd420, 0xd60, 0xd60, 
-  0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 0xd, 0xd2, 0xd2, 0xd, 0xd, 
-  0xd420, 0xd420, 0xd60, 0xd60, 0xd402, 0xd420, 0xd60, 0xd60, 0xd2, 0xd2, 0xd, 
-  0xd, 0xd2, 0xd2, 0xd, 0xd};
 
 // Index for starting point of walk in ngb_bits
-static const unsigned char ngb_start[65] = {
-  0, 7, 14, 20, 26, 33, 40, 46, 52, 57, 62, 66, 70, 75, 80, 84, 88, 95, 102, 108, 114, 121, 127, 132, 138, 143, 147, 150, 154, 159, 164, 168, 172, 175, 178, 180, 182, 185, 188, 190, 192, 193, 194, 194, 194, 195, 196, 196, 196, 199, 202, 204, 206, 209, 212, 214, 216, 217, 218, 218, 218, 219, 220, 220, 220};
+static const unsigned int ngb_start[65] = {
+  0, 9, 18, 26, 34, 43, 52, 60, 68, 75, 82, 88, 94, 101, 108, 114, 120, 129, 
+  138, 146, 154, 163, 171, 178, 186, 193, 199, 204, 210, 217, 224, 230, 236, 
+  241, 246, 250, 254, 259, 264, 268, 272, 275, 278, 280, 282, 285, 288, 290, 
+  292, 297, 302, 306, 310, 315, 320, 324, 328, 331, 334, 336, 338, 341, 
+  344, 346, 348};
 
-static const uint64_t ngb_bits[284] = {
-  0x37707770777, 0x730077007700, 0x777037700000000, 0x8cc0ccc0ccc, 
-  0x7700730000000000, 0xc800cc00cc00, 0xccc08cc00000000, 0xcc00c80000000000L, 
-  0x7ff0fff0fff, 0xf700ff00ff00, 0xfff07ff00000000, 0xff00f70000000000L, 
-  0x8808880888, 0x800088008800, 0x888008800000000, 0x8800800000000000L, 
-  0xeff0fff0fff, 0xfe00ff00ff00, 0xfff0eff00000000, 0xff00fe0000000000L, 
-  0x100011001100, 0x111001100000000, 0x1100100000000000, 0xcee0eee0eee, 
-  0xec00ee00ee00, 0xeee0cee00000000, 0xee00ec0000000000L, 0x310033003300, 
-  0x333013300000000, 0x3300310000000000, 0x377777777777, 0x7777377700000000, 
-  0x8ccccccccccc, 0xcccc8ccc00000000L, 0x300070007000, 0x7000300000000000, 
-  0x8000c000c000, 0xc000800000000000L, 0x7fffffffffff, 0xffff7fff00000000L, 
-  0x7000f000f000, 0x88888888888, 0xf000700000000000L, 0x8888088800000000L, 
-  0x80008000, 0x8000000000000000L, 0xefffffffffff, 0xffffefff00000000L, 
-  0xe000f000f000, 0xf000e00000000000L, 0x1111011100000000, 0x10001000, 
-  0x1000000000000000, 0xceeeeeeeeeee, 0xeeeeceee00000000L, 0x3333133300000000, 
-  0xc000e000e000, 0xe000c00000000000L, 0x100030003000, 0x3000100000000000, 
-  0x777377777777, 0x7777777300000000, 0xccc8cccccccc, 0xccccccc800000000L, 
-  0x7000300000000, 0xc000800000000, 0xfff7ffffffff, 0xfffffff700000000L, 
-  0x888088888888, 0xf000700000000, 0x8888888000000000L, 0x8000000000000, 
-  0xfffeffffffff, 0xfffffffe00000000L, 0xf000e00000000, 0x1111111000000000, 
-  0x1000000000000, 0xeeeceeeeeeee, 0xeeeeeeec00000000L, 0x3333333100000000, 
-  0xe000c00000000, 0x3000100000000, 0x773077707770, 0x7770773000000000, 
-  0xcc80ccc0ccc0, 0x77003700000000, 0xccc0cc8000000000L, 0xcc008c00000000, 
-  0xff70fff0fff0, 0xfff0ff7000000000L, 0xff007f00000000, 0x880088808880, 
-  0x8880880000000000L, 0x88000800000000, 0xffe0fff0fff0, 0xfff0ffe000000000L, 
-  0xff00ef00000000, 0x1110110000000000, 0x11000100000000, 0xeec0eee0eee0, 
-  0xeee0eec000000000L, 0xee00ce00000000, 0x3330331000000000, 0x33001300000000, 
-  0x377077707770777, 0x7300770077007700, 0x8cc0ccc0ccc0ccc, 0xc800cc00cc00cc00L, 
-  0x377000000000000, 0x7300000000000000, 0x8cc000000000000, 0xc800000000000000L, 
-  0x7ff0fff0fff0fff, 0xf700ff00ff00ff00L, 0x7ff000000000000, 0x88088808880888, 
-  0xf700000000000000L, 0x8000880088008800L, 0x88000000000000, 0x8000000000000000L, 
-  0xeff0fff0fff0fff, 0xfe00ff00ff00ff00L, 0xeff000000000000, 0xfe00000000000000L, 
-  0x1000110011001100, 0x11000000000000, 0x1000000000000000, 0xcee0eee0eee0eee, 
-  0xec00ee00ee00ee00L, 0x3100330033003300, 0xcee000000000000, 0xec00000000000000L, 
-  0x133000000000000, 0x3100000000000000, 0x3777777777777777, 0x8cccccccccccccccL, 
-  0x3000700070007000, 0x3777000000000000, 0x8000c000c000c000L, 0x8ccc000000000000L, 
-  0x3000000000000000, 0x8000000000000000L, 0x7fffffffffffffff, 0x7000f000f000f000, 
-  0x7fff000000000000, 0x888888888888888, 0x7000000000000000, 0x800080008000, 
-  0x888000000000000, 0xefffffffffffffffL, 0xe000f000f000f000L, 0xefff000000000000L, 
-  0xe000000000000000L, 0x100010001000, 0x111000000000000, 0xceeeeeeeeeeeeeeeL, 
-  0xc000e000e000e000L, 0xceee000000000000L, 0x1000300030003000, 0x1333000000000000, 
-  0xc000000000000000L, 0x1000000000000000, 0x7773777777777777, 0xccc8ccccccccccccL, 
-  0x7773000000000000, 0xccc8000000000000L, 0x3000000000000, 0x8000000000000, 
-  0xfff7ffffffffffffL, 0xfff7000000000000L, 0x8880888888888888L, 0x7000000000000, 
-  0x8880000000000000L, 0xfffeffffffffffffL, 0xfffe000000000000L, 0xe000000000000, 
-  0x1110000000000000, 0xeeeceeeeeeeeeeeeL, 0xeeec000000000000L, 0x3331000000000000, 
-  0xc000000000000, 0x1000000000000, 0x7730777077707770, 0xcc80ccc0ccc0ccc0L, 
-  0x7730000000000000, 0x37000000000000, 0xcc80000000000000L, 0x8c000000000000, 
-  0xff70fff0fff0fff0L, 0xff70000000000000L, 0x8800888088808880L, 0x7f000000000000, 
-  0x8800000000000000L, 0x8000000000000, 0xffe0fff0fff0fff0L, 0xffe0000000000000L, 
-  0xef000000000000, 0x1100000000000000, 0x1000000000000, 0xeec0eee0eee0eee0L, 
-  0xeec0000000000000L, 0xce000000000000, 0x3310000000000000, 0x13000000000000, 
-  0x777077707770377, 0x7700770077007300, 0xccc0ccc0ccc08cc, 0xcc00cc00cc00c800L, 
-  0xfff0fff0fff07ff, 0xff00ff00ff00f700L, 0x888088808880088, 0x8800880088008000L, 
-  0xfff0fff0fff0eff, 0xff00ff00ff00fe00L, 0x1100110011001000, 0xeee0eee0eee0cee, 
-  0xee00ee00ee00ec00L, 0x3300330033003100, 0x7777777777773777, 0xcccccccccccc8cccL, 
-  0x7000700070003000, 0xc000c000c0008000L, 0xffffffffffff7fffL, 0xf000f000f0007000L, 
-  0x8888888888880888L, 0x8000800080000000L, 0xffffffffffffefffL, 0xf000f000f000e000L, 
-  0x1000100010000000, 0xeeeeeeeeeeeeceeeL, 0xe000e000e000c000L, 0x3000300030001000, 
-  0x7777777777777773, 0xccccccccccccccc8L, 0xfffffffffffffff7L, 0x8888888888888880L, 
-  0xfffffffffffffffeL, 0xeeeeeeeeeeeeeeecL, 0x7770777077707730, 0xccc0ccc0ccc0cc80L, 
-  0xfff0fff0fff0ff70L, 0x8880888088808800L, 0xfff0fff0fff0ffe0L, 0xeee0eee0eee0eec0L, 
-  0x777077703770000, 0x7700770073000000, 0xccc0ccc08cc0000, 0xcc00cc00c8000000L, 
-  0xfff0fff07ff0000, 0xff00ff00f7000000L, 0x888088800880000, 0x8800880080000000L, 
-  0xfff0fff0eff0000, 0xff00ff00fe000000L, 0x1100110010000000, 0xeee0eee0cee0000, 
-  0xee00ee00ec000000L, 0x3300330031000000, 0x7777777737770000, 0xcccccccc8ccc0000L, 
-  0x7000700030000000, 0xc000c00080000000L, 0xffffffff7fff0000L, 0xf000f00070000000L, 
-  0x8888888808880000L, 0x8000800000000000L, 0xffffffffefff0000L, 0xf000f000e0000000L, 
-  0x1000100000000000, 0xeeeeeeeeceee0000L, 0xe000e000c0000000L, 0x3000300010000000, 
-  0x7777777777730000, 0xccccccccccc80000L, 0xfffffffffff70000L, 0x8888888888800000L, 
-  0xfffffffffffe0000L, 0xeeeeeeeeeeec0000L, 0x7770777077300000, 0xccc0ccc0cc800000L, 
-  0xfff0fff0ff700000L, 0x8880888088000000L, 0xfff0fff0ffe00000L, 0xeee0eee0eec00000L};
+/*
+  Ragged array of
+  selfmask, packed_walk, ngb_mask[0,...N],
 
+  where
+    selfmask     - all the 4x4x4 cells in my block I am within sqrt(3) of.
+    packed_walks - for each (64) subcells, integer with each hex digit (0-12, 
+                   0x0-0xC) denotes one of the neighbouring blocks, 13 (0xD) 
+		   is the stop signal
+    ngb_mask[..] - each 4x4x4 cell in ngb block I am within sqrt(3) of.
+*/
+
+static const uint64_t ngb_bits[348] = {
+  0x37707770777, 0xdc743210, 0x730077007700, 0x777037700000000, 0x8cc0ccc0ccc, 0x7700730000000000, 0xc800cc00cc00, 0xccc08cc00000000, 0xcc00c80000000000L, 0x7ff0fff0fff, 0xdc742310, 0xf700ff00ff00, 0xfff07ff00000000, 0xff00f70000000000L, 0x8808880888, 0x800088008800, 0x888008800000000, 0x8800800000000000L, 
+  0xeff0fff0fff, 0xd986310, 0xfe00ff00ff00, 0xfff0eff00000000, 0xff00fe0000000000L, 0x100011001100, 0x111001100000000, 0x1100100000000000, 
+  0xcee0eee0eee, 0xd986310, 0xec00ee00ee00, 0xeee0cee00000000, 0xee00ec0000000000L, 0x310033003300, 0x333013300000000, 0x3300310000000000, 
+  0x377777777777, 0xdc430721, 0x7777377700000000, 0x8ccccccccccc, 0xcccc8ccc00000000L, 0x300070007000, 0x7000300000000000, 0x8000c000c000, 0xc000800000000000L, 
+  0x7fffffffffff, 0xdc473201, 0xffff7fff00000000L, 0x7000f000f000, 0x88888888888, 0xf000700000000000L, 0x8888088800000000L, 0x80008000, 0x8000000000000000L, 
+  0xefffffffffff, 0xd968301, 0xffffefff00000000L, 0xe000f000f000, 0xf000e00000000000L, 0x1111011100000000, 0x10001000, 0x1000000000000000, 
+  0xceeeeeeeeeee, 0xd963081, 0xeeeeceee00000000L, 0x3333133300000000, 0xc000e000e000, 0xe000c00000000000L, 0x100030003000, 0x3000100000000000, 
+  0x777377777777, 0xdb5721, 0x7777777300000000, 0xccc8cccccccc, 0xccccccc800000000L, 0x7000300000000, 0xc000800000000, 
+  0xfff7ffffffff, 0xdb7521, 0xfffffff700000000L, 0x888088888888, 0xf000700000000, 0x8888888000000000L, 0x8000000000000, 
+  0xfffeffffffff, 0xda851, 0xfffffffe00000000L, 0xf000e00000000, 0x1111111000000000, 0x1000000000000, 
+  0xeeeceeeeeeee, 0xda581, 0xeeeeeeec00000000L, 0x3333333100000000, 0xe000c00000000, 0x3000100000000, 
+  0x773077707770, 0xdb7521, 0x7770773000000000, 0xcc80ccc0ccc0, 0x77003700000000, 0xccc0cc8000000000L, 0xcc008c00000000, 
+  0xff70fff0fff0, 0xdb7251, 0xfff0ff7000000000L, 0xff007f00000000, 0x880088808880, 0x8880880000000000L, 0x88000800000000, 
+  0xffe0fff0fff0, 0xda851, 0xfff0ffe000000000L, 0xff00ef00000000, 0x1110110000000000, 0x11000100000000, 
+  0xeec0eee0eee0, 0xda851, 0xeee0eec000000000L, 0xee00ce00000000, 0x3330331000000000, 0x33001300000000, 
+  0x377077707770777, 0xdc731420, 0x7300770077007700, 0x8cc0ccc0ccc0ccc, 0xc800cc00cc00cc00L, 0x377000000000000, 0x7300000000000000, 0x8cc000000000000, 0xc800000000000000L, 
+  0x7ff0fff0fff0fff, 0xdc743210, 0xf700ff00ff00ff00L, 0x7ff000000000000, 0x88088808880888, 0xf700000000000000L, 0x8000880088008800L, 0x88000000000000, 0x8000000000000000L, 
+  0xeff0fff0fff0fff, 0xd986310, 0xfe00ff00ff00ff00L, 0xeff000000000000, 0xfe00000000000000L, 0x1000110011001100, 0x11000000000000, 0x1000000000000000, 
+  0xcee0eee0eee0eee, 0xd983160, 0xec00ee00ee00ee00L, 0x3100330033003300, 0xcee000000000000, 0xec00000000000000L, 0x133000000000000, 0x3100000000000000, 
+  0x3777777777777777, 0xdc374102, 0x8cccccccccccccccL, 0x3000700070007000, 0x3777000000000000, 0x8000c000c000c000L, 0x8ccc000000000000L, 0x3000000000000000, 0x8000000000000000L, 
+  0x7fffffffffffffff, 0xd743210, 0x7000f000f000f000, 0x7fff000000000000, 0x888888888888888, 0x7000000000000000, 0x800080008000, 0x888000000000000, 
+  0xefffffffffffffffL, 0xd86310, 0xe000f000f000f000L, 0xefff000000000000L, 0xe000000000000000L, 0x100010001000, 0x111000000000000, 
+  0xceeeeeeeeeeeeeeeL, 0xd938610, 0xc000e000e000e000L, 0xceee000000000000L, 0x1000300030003000, 0x1333000000000000, 0xc000000000000000L, 0x1000000000000000, 
+  0x7773777777777777, 0xdb5712, 0xccc8ccccccccccccL, 0x7773000000000000, 0xccc8000000000000L, 0x3000000000000, 0x8000000000000, 
+  0xfff7ffffffffffffL, 0xd7521, 0xfff7000000000000L, 0x8880888888888888L, 0x7000000000000, 0x8880000000000000L, 
+  0xfffeffffffffffffL, 0xd851, 0xfffe000000000000L, 0xe000000000000, 0x1110000000000000, 
+  0xeeeceeeeeeeeeeeeL, 0xda581, 0xeeec000000000000L, 0x3331000000000000, 0xc000000000000, 0x1000000000000, 
+  0x7730777077707770, 0xdb7512, 0xcc80ccc0ccc0ccc0L, 0x7730000000000000, 0x37000000000000, 0xcc80000000000000L, 0x8c000000000000, 
+  0xff70fff0fff0fff0L, 0xdb7521, 0xff70000000000000L, 0x8800888088808880L, 0x7f000000000000, 0x8800000000000000L, 0x8000000000000, 
+  0xffe0fff0fff0fff0L, 0xda851, 0xffe0000000000000L, 0xef000000000000, 0x1100000000000000, 0x1000000000000, 
+  0xeec0eee0eee0eee0L, 0xda851, 0xeec0000000000000L, 0xce000000000000, 0x3310000000000000, 0x13000000000000, 
+  0x777077707770377, 0xd420, 0x7700770077007300, 0xccc0ccc0ccc08cc, 0xcc00cc00cc00c800L, 
+  0xfff0fff0fff07ff, 0xd420, 0xff00ff00ff00f700L, 0x888088808880088, 0x8800880088008000L, 
+  0xfff0fff0fff0eff, 0xd60, 0xff00ff00ff00fe00L, 0x1100110011001000, 
+  0xeee0eee0eee0cee, 0xd60, 0xee00ee00ee00ec00L, 0x3300330033003100, 
+  0x7777777777773777, 0xd402, 0xcccccccccccc8cccL, 0x7000700070003000, 0xc000c000c0008000L, 
+  0xffffffffffff7fffL, 0xd420, 0xf000f000f0007000L, 0x8888888888880888L, 0x8000800080000000L, 
+  0xffffffffffffefffL, 0xd60, 0xf000f000f000e000L, 0x1000100010000000, 
+  0xeeeeeeeeeeeeceeeL, 0xd60, 0xe000e000e000c000L, 0x3000300030001000, 
+  0x7777777777777773, 0xd2, 0xccccccccccccccc8L, 
+  0xfffffffffffffff7L, 0xd2, 0x8888888888888880L, 
+  0xfffffffffffffffeL, 0xd, 0xeeeeeeeeeeeeeeecL, 0xd, 
+  0x7770777077707730, 0xd2, 0xccc0ccc0ccc0cc80L, 
+  0xfff0fff0fff0ff70L, 0xd2, 0x8880888088808800L, 
+  0xfff0fff0fff0ffe0L, 0xd, 0xeee0eee0eee0eec0L, 0xd, 
+  0x777077703770000, 0xd420, 0x7700770073000000, 0xccc0ccc08cc0000, 0xcc00cc00c8000000L, 
+  0xfff0fff07ff0000, 0xd420, 0xff00ff00f7000000L, 0x888088800880000, 0x8800880080000000L, 
+  0xfff0fff0eff0000, 0xd60, 0xff00ff00fe000000L, 0x1100110010000000, 
+  0xeee0eee0cee0000, 0xd60, 0xee00ee00ec000000L, 0x3300330031000000, 
+  0x7777777737770000, 0xd402, 0xcccccccc8ccc0000L, 0x7000700030000000, 0xc000c00080000000L, 
+  0xffffffff7fff0000L, 0xd420, 0xf000f00070000000L, 0x8888888808880000L, 0x8000800000000000L, 
+  0xffffffffefff0000L, 0xd60, 0xf000f000e0000000L, 0x1000100000000000, 
+  0xeeeeeeeeceee0000L, 0xd60, 0xe000e000c0000000L, 0x3000300010000000, 
+  0x7777777777730000, 0xd2, 0xccccccccccc80000L, 
+  0xfffffffffff70000L, 0xd2, 0x8888888888800000L, 
+  0xfffffffffffe0000L, 0xd, 
+  0xeeeeeeeeeeec0000L, 0xd, 
+  0x7770777077300000, 0xd2, 0xccc0ccc0cc800000L, 
+  0xfff0fff0ff700000L, 0xd2, 0x8880888088000000L, 
+  0xfff0fff0ffe00000L, 0xd, 
+  0xeee0eee0eec00000L, 0xd};
 
 /* SubCells */
 typedef struct {
@@ -192,7 +184,7 @@ static inline unsigned int find_path_compress(const unsigned int idx, SubCell *r
   return domain;
 }
 
-static inline int connected_pwise(const int cur_size, const double b2,
+static inline int connected_pwise(const int64_t *restrict cur_stop, const double b2,
 				  const int64_t* restrict cur_idx,
 				  const int64_t *restrict adj_idx,
 				  const double *restrict xyz,
@@ -208,8 +200,8 @@ static inline int connected_pwise(const int cur_size, const double b2,
   do
     {
       const double *xyz2 = &xyz[(*adj_idx++)*3];
-      const int64_t* p1 = cur_idx;      
-      for (int my_k=cur_size;my_k;--my_k, p1++)
+      
+      for (const int64_t* p1 = cur_idx; p1<cur_stop; p1++)
 	{
 	  const double *xyz1 = &xyz[(*p1)*3];
 	  
@@ -319,40 +311,43 @@ int fof(const int num_pos, const int N, const int M, const double b,
   if (!hfill)
     return -5;
 
-  for (unsigned int cur_start=0, subcell=0, my_cell=0;
-       cur_start<num_pos;subcell=my_cell)
+  for (unsigned int i=0, my_cell=0;
+       i<num_pos;)
     {
-      const int64_t my_block = cell_ids[sort_idx[cur_start]]>>6;
-      const unsigned int my_hash = (unsigned int)my_block*hprime&hmask;
-      //      int my_oct_fill = 0;
+      const int64_t my_block = cell_ids[sort_idx[i]]>>6;
+      const unsigned int my_hash = (unsigned int)my_block*hprime&hmask,
+	first_cell_in_block = my_cell;
 
       // Loop over subcells
-      for (int cur_end=cur_start+1;
-	   cur_start<num_pos && cell_ids[sort_idx[cur_start]]>>6==my_block; // TODO try masks not shifts?
-	   ++my_cell, cur_start=cur_end)
+      for (;
+	   i<num_pos && cell_ids[sort_idx[i]]>>6==my_block; // TODO try masks not shifts?
+	   ++my_cell)
 	{
-	  const int64_t my_id = cell_ids[sort_idx[cur_start]];
+	  const unsigned int my_start = cells[my_cell].start = i;
+	  const int64_t my_id = cell_ids[sort_idx[i]];
+
 	  // Find all points in subcell
-	  while (cur_end<num_pos && cell_ids[sort_idx[cur_end]]==my_id)
-	    cur_end++;
+	  while (++i<num_pos && cell_ids[sort_idx[i]]==my_id);
 
 	  // Put in own domain
-	  cells[my_cell].start = cur_start;
 	  cells[my_cell].parent = my_cell; 
-	  unsigned int my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
+	  const unsigned int my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
 	  cells[my_cell].rank = 0;
 
-	  const uint64_t *connection_mask = ngb_bits + (ngb_start[my64]+my64);
+	  const uint64_t *connection_mask = ngb_bits + ngb_start[my64],
+	    self_mask = *connection_mask++;
+
 	  // Subcell done, connect to previous subcells (if any)
-	  for (unsigned int adj_idx=my_cell;adj_idx!=subcell;) 
+	  for (unsigned int adj_idx=my_cell;(adj_idx--)!=first_cell_in_block;) 
 	    {
-	      if (!(*connection_mask>>cells[--adj_idx].subcell&1))
+	      if (!(self_mask>>cells[adj_idx].subcell&1))
 		continue;
+
 	      const unsigned int my_root = cells[my_cell].parent,
 		adj_root = find_path_compress(adj_idx, cells);
 	      
 	      if (adj_root!=my_root && 
-		  connected_pwise(cur_end-cur_start, b2, sort_idx+cur_start, 
+		  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
 				  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 		{
 		  // Connect the domains - Disjoint sets union algorithm
@@ -365,7 +360,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 
 	  // Link to adjacent cells
 	  // Loop of neighboring blocks
-	  for (unsigned int walk_blocks=packed_walk[my64], adj=walk_blocks&0xF;
+	  for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
 	       adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	    // Find block (or none) in hashtable
 	    for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
@@ -375,18 +370,18 @@ int fof(const int num_pos, const int N, const int M, const double b,
 #ifdef DEBUG
 		  ngb_found++;
 #endif
-		  // First draft just try to connect every subcell pairwise (backwards)
-		  for (unsigned int adj_idx = htable[adj_hash].idx+htable[adj_hash].num_subcells;
-		       adj_idx!=htable[adj_hash].idx; )
+		  // Go over every subcell in adj
+		  for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
+		       ctr--; ++adj_idx)
 		    {
-		      if (!(connection_mask[1]>>cells[--adj_idx].subcell&1))
+		      if (!(connection_mask[0]>>cells[adj_idx].subcell&1))
 			continue; // No |p_me - p_adj|<b possible
 
 		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
 			my_root = cells[my_cell].parent;
 
 		      if (adj_root!=my_root &&
-			  connected_pwise(cur_end-cur_start, b2, sort_idx+cur_start, 
+			  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
 					  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 			{
 
@@ -421,9 +416,9 @@ int fof(const int num_pos, const int N, const int M, const double b,
       
       hfill[cur>>5] |= 1U<<(cur&31);
       
-      htable[cur].idx = subcell;
+      htable[cur].idx = first_cell_in_block;
       htable[cur].block = my_block;
-      htable[cur].num_subcells = my_cell - subcell;
+      htable[cur].num_subcells = my_cell - first_cell_in_block;
     }
   
       
