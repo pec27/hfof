@@ -311,38 +311,32 @@ int fof(const int num_pos, const int N, const int M, const double b,
   if (!hfill)
     return -5;
 
-  for (unsigned int i=0, my_cell=0;
-       i<num_pos;)
+  // Loop over all points
+  for (unsigned int i=0, my_cell=0; i<num_pos;)
     {
       const int64_t my_block = cell_ids[sort_idx[i]]>>6;
       const unsigned int my_hash = (unsigned int)my_block*hprime&hmask,
 	first_cell_in_block = my_cell;
 
       // Loop over subcells
-      for (;
-	   i<num_pos && cell_ids[sort_idx[i]]>>6==my_block; // TODO try masks not shifts?
-	   ++my_cell)
-	{
-	  const unsigned int my_start = cells[my_cell].start = i;
-	  const int64_t my_id = cell_ids[sort_idx[i]];
-
-	  // Find all points in subcell
-	  while (++i<num_pos && cell_ids[sort_idx[i]]==my_id);
-
-	  // Put in own domain
-	  cells[my_cell].parent = my_cell; 
-	  const unsigned int my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
-	  cells[my_cell].rank = 0;
-
-	  const uint64_t *connection_mask = ngb_bits + ngb_start[my64],
-	    self_mask = *connection_mask++;
-
-	  // Subcell done, connect to previous subcells (if any)
-	  for (unsigned int adj_idx=my_cell;(adj_idx--)!=first_cell_in_block;) 
+      do {
+	const int64_t my_id = cell_ids[sort_idx[i]];
+	// Put in own domain
+	const unsigned int my_start = cells[cells[my_cell].parent = my_cell].start = i,
+	  my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
+	
+	cells[my_cell].rank = 0;
+	
+	// Find all points in subcell
+	while (++i<num_pos && cell_ids[sort_idx[i]]==my_id);
+	
+	const uint64_t *connection_mask = ngb_bits + ngb_start[my64],
+	  self_mask = *connection_mask++;
+	
+	// Connect to subcells in same block (if any)
+	for (unsigned int adj_idx=my_cell;(adj_idx--)!=first_cell_in_block;) 
+	  if (self_mask>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
 	    {
-	      if (!(self_mask>>cells[adj_idx].subcell&1))
-		continue;
-
 	      const unsigned int my_root = cells[my_cell].parent,
 		adj_root = find_path_compress(adj_idx, cells);
 	      
@@ -357,34 +351,33 @@ int fof(const int num_pos, const int N, const int M, const double b,
 		    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
 		}
 	    }
-
-	  // Link to adjacent cells
-	  // Loop of neighboring blocks
-	  for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
-	       adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
-	    // Find block (or none) in hashtable
-	    for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
-		 hfill[adj_hash>>5]>>(adj_hash&31)&1; adj_hash=(adj_hash+1)&hmask)
-	      if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
-		{
+	// Finished connecting cells in same block
+	
+	// Connect cells in adjacent blocks
+	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
+	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
+	  // Find block (or none) in hashtable
+	  for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
+	       hfill[adj_hash>>5]>>(adj_hash&31)&1; adj_hash=(adj_hash+1)&hmask)
+	    if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
+	      {
 #ifdef DEBUG
-		  ngb_found++;
+		ngb_found++;
 #endif
-		  // Go over every subcell in adj
-		  for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
-		       ctr--; ++adj_idx)
+		// Go over every subcell in adj
+		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
+		     ctr--; ++adj_idx)
+		  if (connection_mask[0]>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
 		    {
-		      if (!(connection_mask[0]>>cells[adj_idx].subcell&1))
-			continue; // No |p_me - p_adj|<b possible
-
+		      
 		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
 			my_root = cells[my_cell].parent;
-
+		    
 		      if (adj_root!=my_root &&
 			  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
 					  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 			{
-
+			  
 			  // Connect the domains - Disjoint sets union algorithm
 			  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
 			    cells[my_cell].parent = cells[my_root].parent = adj_root;
@@ -392,14 +385,15 @@ int fof(const int num_pos, const int N, const int M, const double b,
 			    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
 			}
 		    }
-		  break; // Found neighbour so done
-		}
+		break; // Found neighbour so done
+	      }
 #ifdef DEBUG
-	      else
-		search_collisions++; // Wrong cell, move to next
+	    else
+	      search_collisions++; // Wrong cell, move to next
 #endif
-	}
-       
+	++my_cell;
+      } while (i<num_pos && cell_ids[sort_idx[i]]>>6==my_block); // TODO try masks not shifts?
+      
       // Add to hash table      
       unsigned int cur = my_hash;
 #ifdef DEBUG
