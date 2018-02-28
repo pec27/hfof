@@ -222,8 +222,8 @@ static inline int connected_pwise(const int64_t *restrict cur_stop, const double
 
 typedef struct {
   int64_t block; // ID of cell
-  int32_t idx; // index of cell (when ordered)
-  unsigned int num_subcells;
+  uint32_t idx; // index of cell (when ordered)
+  unsigned int num_subcells:7, fill:1;
 } HashBlock;
 
 int fof(const int num_pos, const int N, const int M, const double b, 
@@ -297,7 +297,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 #endif
 
   // Hashtable of indices
-  HashBlock *htable = malloc(hsize * sizeof(HashBlock));
+  HashBlock *htable = calloc(hsize, sizeof(HashBlock));
   if (!htable)
     return -3; // not enough mem.
 
@@ -305,11 +305,6 @@ int fof(const int num_pos, const int N, const int M, const double b,
 
   if (!cells)
     return -1;
-
-  // Hash table fill bits
-  uint32_t *hfill = calloc(hsize>>5, sizeof(uint32_t));
-  if (!hfill)
-    return -5;
 
   // Loop over all points
   for (unsigned int i=0, my_cell=0; i<num_pos;)
@@ -358,7 +353,7 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	  // Find block (or none) in hashtable
 	  for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
-	       hfill[adj_hash>>5]>>(adj_hash&31)&1; adj_hash=(adj_hash+1)&hmask)
+	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
 	    if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
 	      {
 #ifdef DEBUG
@@ -397,18 +392,18 @@ int fof(const int num_pos, const int N, const int M, const double b,
       // Add to hash table      
       unsigned int cur = my_hash;
 #ifdef DEBUG
-      while (hfill[cur>>5]&1U<<(cur&31))
+      while (htable[cur].fill)
 	{
 	  fill_collisions++;
 	  cur = (cur+1)&hmask;
 	}
      
 #else
-      while (hfill[cur>>5]&(1U<<(cur&31)))
+      while (htable[cur].fill)
 	cur = (cur+1)&hmask;
 #endif
       
-      hfill[cur>>5] |= 1U<<(cur&31);
+      htable[cur].fill=1;
       
       htable[cur].idx = first_cell_in_block;
       htable[cur].block = my_block;
@@ -416,7 +411,6 @@ int fof(const int num_pos, const int N, const int M, const double b,
     }
   
       
-  free(hfill);
   free(htable);
 
   // Renumber the domains from 0...num_doms-1
