@@ -3,7 +3,6 @@
 #SBATCH --partition=mainq
 #SBATCH -n 1 # tasks
 #SBATCH --cpus-per-task=1 # raptor likes to add tasks per core, avoid
-##SBATCH --mem-per-cpu=250000 # MB
 #SBATCH --mem=250000 # MB
 #SBATCH -t 48:00:00  # time to run
 #SBATCH -J time_all # job name
@@ -14,14 +13,9 @@
 # Load modules
 module load openmpi-x86_64
 
-#nbodyshop
-python examples/time_tipsy.py /mainvol/peter.creasey/lizbench/data
+# hash based fof, kd count, nbodyshop
+python examples/time_all.py /mainvol/peter.creasey/lizbench/data
 
-# hash based fof
-python examples/time_hfof.py /mainvol/peter.creasey/lizbench/data
-
-# kd count
-python examples/time_kdcount.py /mainvol/peter.creasey/lizbench/data
 
 
 

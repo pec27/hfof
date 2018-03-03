@@ -24,6 +24,12 @@ def _initlib():
     print('Loading libhfof - C functions for FoF calculations', name)
     _libhfof = ctypes.cdll.LoadLibrary(name)
 
+    # morton indexing
+    # void get_morton_idx(const double *pos, const int num_pos, const double inv_cell_width, int64_t *restrict out)
+    func = _libhfof.get_morton_idx
+    func.restype = None
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, ndpointer(int64)]
+    
     # minimum and maximum per cell
     # void get_min_max(const double *pos, const int num_pos, double *restrict out)
     func = _libhfof.get_min_max
@@ -75,6 +81,7 @@ def _initlib():
 
 def fof3d(blocks_cells, n, m, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
+    xyz = require(xyz, dtype=float64, requirements=['C'])
     blocks_cells = require(blocks_cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(npos, dtype=int32)
@@ -146,3 +153,14 @@ def minmax(pts):
     out = empty(6, dtype=float64)
     res = lib.get_min_max(p, len(p), out)
     return out[:3], out[3:]
+
+def morton_idx(pts):
+    """ Find the morton index of the points (on an 8192^3 grid) """
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C']) 
+    inv_cell_width = 1.0/8192
+    npts = len(p)
+    out = empty(npts, dtype=int64)
+    lib.get_morton_idx(p, npts, inv_cell_width, out)
+    return out
+    
