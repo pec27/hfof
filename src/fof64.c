@@ -453,3 +453,272 @@ int fof(const int num_pos, const int N, const int M, const double b,
 
   return num_doms;
 }
+
+int fof_periodic64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+		   const double *restrict xyz, const int64_t *restrict cell_ids, 
+		   const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
+		   int32_t *restrict domains,
+		   const double desired_load)
+{
+  /*
+    Friends of Friends by binning into cells.
+
+    num_pos  - The number of points
+    N        - Multiplicative factor such that cell(i,j,k) = M i + N j + k. 
+               Usually 3 mod 4 for maximum bitwise independence
+    M        - prime bigger than N^2
+    num_orig - Number of points that are not 'false' images
+    b        - The linking length
+    xyz      - (num_pos * 3) array of (unsorted) points
+    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
+    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
+               by cell)
+    pad_idx  - the indices of the images in the original array (for linking)
+    domains  - (num_pos,) integer output array for the domains
+    desired_load - Load for the hash table (0.6 probably best)
+    Returns filled domains, integers s.t.  (same integer)=>connected
+
+    Implementation uses a hash-table and the disjoint sets algorithm to link
+    cells.
+  */
+  
+  int num_cells=0, num_blocks=1;
+
+  const unsigned int walk_ngbs[13] = WALK_NGB(M,N);
+
+  const double b2 = b*b;
+
+  /* Count the number of cells */
+  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
+    if (cell_ids[sort_idx[i]]!=last_id)
+      {
+	num_cells++;
+	// Check if high bits (i.e. block) is different
+	if ((cell_ids[sort_idx[i]]^last_id)>>6!=0) 
+	  num_blocks++;
+
+	last_id = cell_ids[sort_idx[i]];
+      }
+
+
+  // Find the next power of 2 large enough to hold table at desired load
+  int tab_size=0;
+  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_blocks) 
+    tab_size++;
+
+  if (tab_size==MAX_TAB_NO)
+    return -2; // Table too big
+
+  const int64_t hsize = TAB_START<<tab_size;
+  const unsigned int hprime = HASH_PRIMES[tab_size],
+    hmask = hsize-1;
+
+  const unsigned int hash_ngb[13] = HASH_NGB(walk_ngbs, hprime, hmask);
+
+#ifdef DEBUG
+  float actual_load = (float)num_blocks / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
+  printf("Number of blocks %d, %.2f%% of number of positions (%u)\n", num_blocks, num_blocks*100.0/num_pos, (unsigned int)num_pos);
+  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
+  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
+  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*desired_load, 100.0*actual_load);
+
+  printf("Platform int size %d\nHash cell size %d bytes\n",
+	 (int)sizeof(int), (int)sizeof(HashBlock));
+  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+#endif
+
+  // Hashtable of indices
+  HashBlock *htable = calloc(hsize, sizeof(HashBlock));
+  if (!htable)
+    return -3; // not enough mem.
+
+  SubCell* cells = malloc(num_cells * sizeof(SubCell));
+
+  if (!cells)
+    return -1;
+
+  // Loop over all points
+  for (unsigned int i=0, my_cell=0; i<num_pos;)
+    {
+      const int64_t my_block = cell_ids[sort_idx[i]]>>6;
+      const unsigned int my_hash = (unsigned int)my_block*hprime&hmask,
+	first_cell_in_block = my_cell;
+
+      // Loop over subcells
+      do {
+	const int64_t my_id = cell_ids[sort_idx[i]];
+	// Put in own domain
+	const unsigned int my_start = cells[cells[my_cell].parent = my_cell].start = i,
+	  my64 = cells[my_cell].subcell = (unsigned int)my_id & 63;
+	
+	cells[my_cell].rank = 0;
+
+	// Check for any false images and link to cell of original
+	do {
+	  const int64_t p1 = sort_idx[i];
+	  
+	  if (cell_ids[p1]!=my_id)
+	    break; // diff cell
+	  
+	  if (p1<num_orig) // Original (not an image)
+	    continue; 
+	  
+	  const int64_t orig_cell = cell_ids[pad_idx[p1-num_orig]];
+	  const int64_t orig_block = orig_cell>>6;
+	  const unsigned int orig_subcell = orig_cell&63;
+	  
+	  // Find cell in hash table (must be there, since earlier insertion)
+	  unsigned int adj_hash=(unsigned int)orig_block*hprime&hmask;
+	  while (htable[adj_hash].block!=orig_block) // Found or collision?
+	    adj_hash=(adj_hash+1) & hmask;
+	  
+	  unsigned int adj_cell = htable[adj_hash].idx;
+	  while (cells[adj_cell].subcell != orig_subcell)
+	    adj_cell++;
+	  
+	  // Link me (if not already)
+	  // Find root of this domain (path compression of disjoint sets)
+	  const unsigned int adj_root = find_path_compress(adj_cell, cells),
+	    my_root = cells[my_cell].parent;	
+	  
+	  if (adj_root==my_root) // Already linked
+	    continue;
+	  
+	  // Connected (since my image in both cells)
+	  // Connect the domains - Disjoint sets union algorithm
+	  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
+	    cells[my_cell].parent = cells[my_root].parent = adj_root;
+	  else if (cells[cells[adj_root].parent = my_root].rank == cells[adj_root].rank) // Add adj to me
+	    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
+	} while ((++i)<num_pos);
+	
+	const uint64_t *connection_mask = ngb_bits + ngb_start[my64],
+	  self_mask = *connection_mask++;
+	
+	// Connect to subcells in same block (if any)
+	for (unsigned int adj_idx=my_cell;(adj_idx--)!=first_cell_in_block;) 
+	  if (self_mask>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
+	    {
+	      const unsigned int my_root = cells[my_cell].parent,
+		adj_root = find_path_compress(adj_idx, cells);
+	      
+	      if (adj_root!=my_root && 
+		  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
+				  sort_idx + cells[adj_idx].start, xyz, cell_ids))
+		{
+		  // Connect the domains - Disjoint sets union algorithm
+		  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
+		    cells[my_cell].parent = cells[my_root].parent = adj_root;
+		  else if (cells[cells[adj_root].parent = my_root].rank == cells[adj_root].rank) // Add adj to me
+		    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
+		}
+	    }
+	// Finished connecting cells in same block
+	
+	// Connect cells in adjacent blocks
+	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
+	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
+	  // Find block (or none) in hashtable
+	  for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
+	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
+	    if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
+	      {
+#ifdef DEBUG
+		ngb_found++;
+#endif
+		// Go over every subcell in adj
+		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
+		     ctr--; ++adj_idx)
+		  if (connection_mask[0]>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
+		    {
+		      
+		      const unsigned int adj_root = find_path_compress(adj_idx, cells),
+			my_root = cells[my_cell].parent;
+		    
+		      if (adj_root!=my_root &&
+			  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
+					  sort_idx + cells[adj_idx].start, xyz, cell_ids))
+			{
+			  
+			  // Connect the domains - Disjoint sets union algorithm
+			  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
+			    cells[my_cell].parent = cells[my_root].parent = adj_root;
+			  else if (cells[cells[adj_root].parent = my_root].rank == cells[adj_root].rank) // Add adj to me
+			    cells[my_root].rank++; // Arbitrarily choose, in tests add adj to me slightly faster
+			}
+		    }
+		break; // Found neighbour so done
+	      }
+#ifdef DEBUG
+	    else
+	      search_collisions++; // Wrong cell, move to next
+#endif
+	++my_cell;
+      } while (i<num_pos && cell_ids[sort_idx[i]]>>6==my_block); // TODO try masks not shifts?
+      
+      // Add to hash table      
+      unsigned int cur = my_hash;
+#ifdef DEBUG
+      while (htable[cur].fill)
+	{
+	  fill_collisions++;
+	  cur = (cur+1)&hmask;
+	}
+     
+#else
+      while (htable[cur].fill)
+	cur = (cur+1)&hmask;
+#endif
+      
+      htable[cur].fill=1;
+      
+      htable[cur].idx = first_cell_in_block;
+      htable[cur].block = my_block;
+      htable[cur].num_subcells = my_cell - first_cell_in_block;
+    }
+  
+      
+  free(htable);
+
+  // Renumber the domains from 0...num_doms-1
+  // A bit hack-y, but use the cell starts to hold the domains
+  int num_doms = 0;
+  for (size_t i=0;i<num_cells;++i)
+    if (cells[i].parent==i)
+      cells[i].start = num_doms++; 
+
+  unsigned int domain = find_path_compress(0, cells);
+  domains[sort_idx[0]] = cells[domain].start;
+  int64_t cur_cell_id = cell_ids[sort_idx[0]];
+  for (size_t i=0,j=1;j<num_pos; ++j)
+    {
+      /* Find root of this domain (path compression of disjoint sets) */
+      const unsigned int p1 = sort_idx[j];
+      if (cell_ids[p1]!=cur_cell_id)
+	{
+	  cur_cell_id = cell_ids[sort_idx[j]];
+	  domain = find_path_compress(++i, cells);
+	}
+      if (p1<num_orig) // Ignore images
+	domains[p1] = cells[domain].start; // see hack above
+    }
+
+#ifdef DEBUG
+  int max_rank = cells[0].rank;
+  for (size_t i=1;i<num_cells;++i)
+    if (cells[i].rank>max_rank)
+	max_rank = cells[i].rank;
+
+  float frac_found = ngb_found/ (13.0*num_cells),
+    cmp_per_pt = (float)pt_cmp / (float)num_pos;
+  printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
+  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_blocks, 100.0*expected_collisions);
+
+  printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
+  max_stack_usage=0;
+#endif
+
+  free(cells);
+
+  return num_doms;
+}

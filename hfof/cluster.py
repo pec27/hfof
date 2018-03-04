@@ -5,7 +5,7 @@ Peter Creasey - Oct 2016
 
 """
 from __future__ import absolute_import, print_function
-from .lib import fof3d, get_cells, fof3d_periodic, get_blocks_cells, minmax
+from .lib import fof3d, get_cells, fof3d_periodic, fof_periodic64, get_blocks_cells, minmax
 from .primes import smallest_prime_atleast
 from numpy import flatnonzero, concatenate, argsort, array, floor, zeros, \
     empty_like, unique, arange
@@ -140,14 +140,50 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     
     box_dims = pos_max - pos_min
     max_dim = max(box_dims)
-    
-    
+
+    # Match linking length for furthest point in cell
     cell_width = float(rcut / (3**0.5))
-    
     inv_cell_width = float(1.0/cell_width)
     
-    n_min = int(math.ceil(max_dim*inv_cell_width))+2 # two extra cells so never wrap
+    if boxsize<4*rcut:
+        # Cant split into 4x4x4 blocks, have to use old method
+        n_min = int(math.ceil(max_dim*inv_cell_width))+2 # two extra cells so never wrap
+        
+        if log is not None:
+            print('Finding primes', file=log)
+        N = smallest_prime_atleast(n_min) # Make sure a prime
+        M = smallest_prime_atleast(N*N)
 
+        if log is not None:
+            print('Searched', N-n_min,'+', M-N*N, 'composites', file=log)
+            print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
+            print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
+            
+            print('Inserted {:,} images'.format(n_new-n), file=log)
+            
+            print('Position minima', pos_min, file=log)
+            print('Position maxima', pos_max, file=log)
+            
+            
+            print('rcut', rcut,file=log)
+            
+            print('Finding cells', file=log)
+        cells = get_cells(pos, inv_cell_width, N, M, log)
+    
+        if log is not None:
+            print('Sorting cells', file=log)        
+        sort_idx = argsort(cells)
+        if log is not None:
+            print('3d fof periodic', file=log)
+        domains = fof3d_periodic(cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
+        return domains
+
+
+    # Use 4x4x4 block method:
+    inv_block_width = 0.25 * inv_cell_width
+
+    # 3 extra blocks so never overlap
+    n_min = int(math.ceil(max_dim*inv_block_width))+3
     if log is not None:
         print('Finding primes', file=log)
     N = smallest_prime_atleast(n_min) # Make sure a prime
@@ -167,12 +203,15 @@ def fof_periodic(pos, boxsize, rcut, log=None):
         print('rcut', rcut,file=log)
     
         print('Finding cells', file=log)
-    cells = get_cells(pos, inv_cell_width, N, M, log)
+    blocks_cells = get_blocks_cells(pos, inv_cell_width, N, M, pos_min, log)
     
     if log is not None:
         print('Sorting cells', file=log)        
-    sort_idx = argsort(cells)
+    sort_idx = argsort(blocks_cells)
     if log is not None:
         print('3d fof periodic', file=log)
-    domains = fof3d_periodic(cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
+    domains = fof_periodic64(blocks_cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
+
     return domains
+
+

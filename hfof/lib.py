@@ -66,6 +66,18 @@ def _initlib():
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), 
                      ndpointer(int32), ctypes.c_double]
 
+    # Friends of Friends linking periodic (on 4x4x4 cells)
+    # int fof_periodic64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+    #		   const double *restrict xyz, const int64_t *restrict cell_ids, 
+    #		   const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
+    #		   int32_t *restrict domains,
+    #		   const double desired_load)
+    func = _libhfof.fof_periodic64
+    func.restype = ctypes.c_int
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, 
+                     ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
+                     ndpointer(int32), ctypes.c_double]
+
     # Friends of Friends periodic linking
     # int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, 
     #		 const double boxsize, const double b, 
@@ -104,6 +116,22 @@ def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     out = empty(n_orig, dtype=int32) # only original points get domains
     lib = _initlib()
     res = lib.fof_periodic(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out)
+
+    if res<0:
+        raise Exception('Error with code %d'%res)
+    if log is not None:
+        print('Number of domains {:,}'.format(res), file=log)
+    return out
+
+def fof_periodic64(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
+    npos = xyz.shape[0]
+    assert(npos>=n_orig) # cant have fewer points than non-image points
+    cells = require(cells, dtype=int64, requirements=['C'])
+    sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
+    out = empty(n_orig, dtype=int32) # only original points get domains
+    desired_load=0.6
+    lib = _initlib()
+    res = lib.fof_periodic64(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out, desired_load)
 
     if res<0:
         raise Exception('Error with code %d'%res)
