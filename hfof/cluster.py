@@ -68,73 +68,18 @@ def pad_cube(pos, boxsize, r_pad):
                           
     return pad_idx, new_pos
 
-
-def fof(pos, rcut, log=None):
+def fof(pos, rcut, boxsize=None, log=None):
     """
-    Return integers for friends-of-friends domains
-    """
-    n, dim = pos.shape
-    assert(dim==3)
 
-    if log is not None:
-        print('Finding extent', file=log)
-
-        
-    pos_min, pos_max = minmax(pos)
-    
-    box_dims = pos_max - pos_min
-    max_dim = max(box_dims)
-    
-    
-    cell_width = float(rcut / (3**0.5))
-    
-    inv_cell_width = float(1.0/cell_width)
-    inv_block_width = 0.25 * inv_cell_width
-
-    n_min = int(math.ceil(max_dim*inv_block_width))+2
-    if log is not None:
-        print('Finding primes', file=log)
-    N = smallest_prime_atleast(n_min) # Make sure a prime
-    M = smallest_prime_atleast(N*N)
-
-    if log is not None:
-        print('Searched', N-n_min,'+', M-N*N, 'composites', file=log)
-        print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
-        print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
-        
-        print('Position minima', pos_min, file=log)
-        print('Position maxima', pos_max, file=log)
-        
-    
-        print('rcut', rcut,file=log)
-    
-        print('Finding cells', file=log)
-    blocks_cells = get_blocks_cells(pos, inv_cell_width, N, M, pos_min, log)
-    
-    if log is not None:
-        print('Sorting cells', file=log)        
-    sort_idx = argsort(blocks_cells)
-    if log is not None:
-        print('3d fof', file=log)
-    domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, log=log)
-
-    return domains
-
-def fof_periodic(pos, boxsize, rcut, log=None):
-    """
-    As for fof but with periodic repetitions
+    Friends of friends domains (with optional periodicity)
 
     Return integers for friends-of-friends domains
     """
-    n, dim = pos.shape
-    assert(dim==3)
+    assert(pos.shape[1]==3)
 
-
-    old_idx, pos = pad_cube(pos, boxsize, rcut)
-    assert(old_idx.max()<n)
-
-    n_new = pos.shape[0] # including padded
-
+    if boxsize is not None:
+        old_idx, pos = pad_cube(pos, boxsize, rcut)
+        assert(old_idx.max()<n)
 
     pos_min, pos_max = minmax(pos)
     
@@ -145,7 +90,7 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     cell_width = float(rcut / (3**0.5))
     inv_cell_width = float(1.0/cell_width)
     
-    if boxsize<4*rcut:
+    if boxsize is not None and boxsize<4*rcut:
         # Cant split into 4x4x4 blocks, have to use old method
         n_min = int(math.ceil(max_dim*inv_cell_width))+2 # two extra cells so never wrap
         
@@ -159,7 +104,7 @@ def fof_periodic(pos, boxsize, rcut, log=None):
             print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
             print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
             
-            print('Inserted {:,} images'.format(n_new-n), file=log)
+            print('Inserted {:,} images'.format(len(old_idx)), file=log)
             
             print('Position minima', pos_min, file=log)
             print('Position maxima', pos_max, file=log)
@@ -182,8 +127,12 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     # Use 4x4x4 block method:
     inv_block_width = 0.25 * inv_cell_width
 
-    # 3 extra blocks so never overlap
-    n_min = int(math.ceil(max_dim*inv_block_width))+3
+    # 2 extra blocks so never overlap
+    n_min = int(math.ceil(max_dim*inv_block_width))+2
+
+    if boxsize is not None:
+        n_min += 1 # 1 block extra for images
+
     if log is not None:
         print('Finding primes', file=log)
     N = smallest_prime_atleast(n_min) # Make sure a prime
@@ -194,7 +143,8 @@ def fof_periodic(pos, boxsize, rcut, log=None):
         print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
         print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
 
-        print('Inserted {:,} images'.format(n_new-n), file=log)
+        if boxsize is not None:
+            print('Inserted {:,} images'.format(len(old_idx)), file=log)
         
         print('Position minima', pos_min, file=log)
         print('Position maxima', pos_max, file=log)
@@ -209,8 +159,11 @@ def fof_periodic(pos, boxsize, rcut, log=None):
         print('Sorting cells', file=log)        
     sort_idx = argsort(blocks_cells)
     if log is not None:
-        print('3d fof periodic', file=log)
-    domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, periodic_pad_idx=old_idx, log=log)
+        print('3d fof', file=log)
+    if boxsize is None:
+        domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, log=log)
+    else:
+        domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, periodic_pad_idx=old_idx, log=log)
 
     return domains
 

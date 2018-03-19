@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function
-from hfof import fof, fof_periodic
+from hfof import fof
 from hfof.lib import get_cells
 from numpy import unique
 from utils import get_sim_pos

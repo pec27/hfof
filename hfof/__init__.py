@@ -1,1 +1,1 @@
-from .cluster import fof, fof_periodic
+from .cluster import fof
