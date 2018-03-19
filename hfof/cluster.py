@@ -5,7 +5,7 @@ Peter Creasey - Oct 2016
 
 """
 from __future__ import absolute_import, print_function
-from .lib import fof3d, get_cells, fof3d_periodic, fof_periodic64, get_blocks_cells, minmax
+from .lib import get_cells, fof3d_periodic, fof_periodic64, get_blocks_cells, minmax
 from .primes import smallest_prime_atleast
 from numpy import flatnonzero, concatenate, argsort, array, floor, zeros, \
     empty_like, unique, arange
@@ -116,7 +116,7 @@ def fof(pos, rcut, log=None):
     sort_idx = argsort(blocks_cells)
     if log is not None:
         print('3d fof', file=log)
-    domains = fof3d(blocks_cells, N, M, rcut, sort_idx, pos, log=log)
+    domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, log=log)
 
     return domains
 
@@ -210,7 +210,7 @@ def fof_periodic(pos, boxsize, rcut, log=None):
     sort_idx = argsort(blocks_cells)
     if log is not None:
         print('3d fof periodic', file=log)
-    domains = fof_periodic64(blocks_cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
+    domains = fof_periodic64(blocks_cells, N, M, rcut, sort_idx, pos, periodic_pad_idx=old_idx, log=log)
 
     return domains
 

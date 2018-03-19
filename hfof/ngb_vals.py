@@ -168,7 +168,8 @@ def ngb_64():
 
     print 'const unsigned int walk_ngbs[13] = {'+', '.join(walk_ngbs)+'};'
     print 'const unsigned int hash_ngb[13] = {'+', '.join(hash_walk)+'};'
-
+    hw2 = [i for sub in zip(hash_walk, walk_ngbs) for i in sub]
+    print 'const unsigned int hash_walk[26] = {'+', '.join(hw2)+'};'
     print 'const unsigned int quad_masks[64] = {\n'+', '.join(hex(q) for q in quad_lists)+'};'
 #    print 'const unsigned char octant_masks[104] = {'+',\n'.join(', '.join(hex(x) for x in o) for o in octant_masks)+'};'
     print 'Total walks', sum(all_checks)

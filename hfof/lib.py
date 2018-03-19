@@ -55,24 +55,13 @@ def _initlib():
                      ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
-    # Friends of Friends linking
-    # int fof(const int num_pos, const int N, const int M, const double b, 
-    #	      const double *restrict xyz, const int64_t *restrict cells, 
-    #	      const int64_t *restrict sort_idx, int32_t *restrict domains,
-    #         const double desired_load)
-    func = _libhfof.fof
-    func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, 
-                     ndpointer(float64), ndpointer(int64),ndpointer(int64), 
-                     ndpointer(int32), ctypes.c_double]
-
     # Friends of Friends linking periodic (on 4x4x4 cells)
-    # int fof_periodic64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
-    #		   const double *restrict xyz, const int64_t *restrict cell_ids, 
-    #		   const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
-    #		   int32_t *restrict domains,
-    #		   const double desired_load)
-    func = _libhfof.fof_periodic64
+    # int fof64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+    #		const double *restrict xyz, const int64_t *restrict cell_ids, 
+    #		const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
+    #		int32_t *restrict domains,
+    #		const double desired_load)
+    func = _libhfof.fof64
     func.restype = ctypes.c_int
     func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, 
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
@@ -90,24 +79,6 @@ def _initlib():
 
     return _libhfof
 
-
-def fof3d(blocks_cells, n, m, rcut, sort_idx, xyz, log=None):
-    npos = xyz.shape[0]
-    xyz = require(xyz, dtype=float64, requirements=['C'])
-    blocks_cells = require(blocks_cells, dtype=int64, requirements=['C'])
-    sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
-    out = empty(npos, dtype=int32)
-    lib = _initlib()
-    res = lib.fof(npos, int(n), int(m), rcut, xyz, blocks_cells, sort_idx, 
-                  out, 0.6)
-
-    if res<0:
-        raise Exception('Error with code %d'%res)
-    if log is not None:
-        print('Number of domains {:,}'.format(res), file=log)
-    return out
-
-
 def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     npos = xyz.shape[0]
     assert(npos>=n_orig) # cant have fewer points than non-image points
@@ -123,15 +94,21 @@ def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
         print('Number of domains {:,}'.format(res), file=log)
     return out
 
-def fof_periodic64(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
+def fof_periodic64(cells, N, M, rcut, sort_idx, xyz, periodic_pad_idx=None, log=None):
     npos = xyz.shape[0]
-    assert(npos>=n_orig) # cant have fewer points than non-image points
+    if periodic_pad_idx is None:
+        n_orig = npos
+        pad_idx = empty(0, dtype=int64) # Dummy, no images
+    else:
+        n_orig = npos - len(periodic_pad_idx)
+        pad_idx = require(periodic_pad_idx, dtype=int64, requirements=['C'])
+
     cells = require(cells, dtype=int64, requirements=['C'])
     sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
     out = empty(n_orig, dtype=int32) # only original points get domains
     desired_load=0.6
     lib = _initlib()
-    res = lib.fof_periodic64(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out, desired_load)
+    res = lib.fof64(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out, desired_load)
 
     if res<0:
         raise Exception('Error with code %d'%res)

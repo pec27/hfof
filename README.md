@@ -1,9 +1,9 @@
 hfof
 ======
 
-### Friends of Friends via spatial hashing
+### Friends of Friends group finding via spatial hashing
 
-ZZZ fill in
+hfof is an open-source friends-of-friends (FoF) group finder in 3d (periodic and non-periodic), based on the following paper (ZZZ arxiv link when public).
 
 Once you have downloaded hfof you will probably want to do the following:
 

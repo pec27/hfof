@@ -10,17 +10,6 @@
 static int max_stack_usage, pt_cmp, fill_collisions, search_collisions, ngb_found;
 #endif
 
-// A walk over the 13 blocks within sqrt(3) cell widths, and having idx<me, 
-// where idx(i,j,k)=Mi+Nj+k
-#define WALK_NGB(M,N) {\
-    N, M, 1, M+N, N+1, M-N, N-1, M+1, M-1, M+N-1, M-N-1, M-N+1, M+N+1}
-
-// hashed position of the neighbour (i.e. (ngb*prime) mod N)
-#define HASH_NGB(A,P,M) {\
-    A[0]*P&M, A[1]*P&M, A[2]*P&M, A[3]*P&M, A[4]*P&M, A[5]*P&M, A[6]*P&M, \
-      A[7]*P&M, A[8]*P&M, A[9]*P&M, A[10]*P&M, A[11]*P&M, A[12]*P&M}
-
-
 // Index for starting point of walk in ngb_bits
 static const unsigned int ngb_start[65] = {
   0, 9, 18, 26, 34, 43, 52, 60, 68, 75, 82, 88, 94, 101, 108, 114, 120, 129, 
@@ -201,7 +190,7 @@ static inline int connected_pwise(const int64_t *restrict cur_stop, const double
     {
       const double *xyz2 = &xyz[(*adj_idx++)*3];
       
-      for (const int64_t* p1 = cur_idx; p1<cur_stop; p1++)
+      for (const int64_t* p1 = cur_idx; p1!=cur_stop; p1++)
 	{
 	  const double *xyz1 = &xyz[(*p1)*3];
 	  
@@ -226,87 +215,29 @@ typedef struct {
   unsigned int num_subcells:7, fill:1;
 } HashBlock;
 
-int fof(const int num_pos, const int N, const int M, const double b, 
-	const double *restrict xyz, const int64_t *restrict cell_ids, 
-	const int64_t *restrict sort_idx, int32_t *restrict domains,
-	const double desired_load)
+static void loop_cells(const unsigned int num_pos, const unsigned int hash_walk[], 
+		      const int64_t *restrict cell_ids, 
+		      const int64_t *restrict sort_idx, 
+		      const unsigned int hprime, const unsigned int hmask, 
+		      const double b2, const double *restrict xyz, 
+		      SubCell *restrict cells, HashBlock *restrict htable)
 {
   /*
-    Friends of Friends by binning into cells.
+    Sequentially insert every point (+cell & block) into a hash-table a link to 
+    neighbours.
+    
+    num_pos   - number of xyz coords
+    hash_walk - pairs of (idx*P mod N, idx) for relative indices of neighbouring blocks
+    cell_ids  - cell idx for every point
+    sort_idx  - indices to sort points s.t. cell_ids[sort_idx[...]] are ordered
+    hprime    - hash prime
+    hmask     - hash mask (2<<L - 1)
+    b2        - squared linking length
+    xyz       - positions (unsorted)
+    cells     - SubCell data (to fill)
+    htable    - zerod hash table of blocks
+   */
 
-    num_pos  - The number of points
-    N        - Multiplicative factor such that cell(i,j,k) = M i + N j + k. 
-               Usually 3 mod 4 for maximum bitwise independence
-    M        - prime bigger than N^2
-    b        - The linking length
-    xyz      - (num_pos * 3) array of (unsorted) points
-    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
-    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
-               by cell)
-    domains  - (num_pos,) integer output array for the domains
-    desired_load - Load for the hash table (0.6 probably best)
-    Returns filled domains, integers s.t.  (same integer)=>connected
-
-    Implementation uses a hash-table and the disjoint sets algorithm to link
-    cells.
-  */
-  
-  int num_cells=0, num_blocks=1;
-
-  const unsigned int walk_ngbs[13] = WALK_NGB(M,N);
-
-  const double b2 = b*b;
-
-  /* Count the number of cells */
-  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
-    if (cell_ids[sort_idx[i]]!=last_id)
-      {
-	num_cells++;
-	// Check if high bits (i.e. block) is different
-	if ((cell_ids[sort_idx[i]]^last_id)>>6!=0) 
-	  num_blocks++;
-
-	last_id = cell_ids[sort_idx[i]];
-      }
-
-
-  // Find the next power of 2 large enough to hold table at desired load
-  int tab_size=0;
-  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_blocks) 
-    tab_size++;
-
-  if (tab_size==MAX_TAB_NO)
-    return -2; // Table too big
-
-  const int64_t hsize = TAB_START<<tab_size;
-  const unsigned int hprime = HASH_PRIMES[tab_size],
-    hmask = hsize-1;
-
-  const unsigned int hash_ngb[13] = HASH_NGB(walk_ngbs, hprime, hmask);
-
-#ifdef DEBUG
-  float actual_load = (float)num_blocks / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
-  printf("Number of blocks %d, %.2f%% of number of positions (%u)\n", num_blocks, num_blocks*100.0/num_pos, (unsigned int)num_pos);
-  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
-  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
-  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*desired_load, 100.0*actual_load);
-
-  printf("Platform int size %d\nHash cell size %d bytes\n",
-	 (int)sizeof(int), (int)sizeof(HashBlock));
-  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
-#endif
-
-  // Hashtable of indices
-  HashBlock *htable = calloc(hsize, sizeof(HashBlock));
-  if (!htable)
-    return -3; // not enough mem.
-
-  SubCell* cells = malloc(num_cells * sizeof(SubCell));
-
-  if (!cells)
-    return -1;
-
-  // Loop over all points
   for (unsigned int i=0, my_cell=0; i<num_pos;)
     {
       const int64_t my_block = cell_ids[sort_idx[i]]>>6;
@@ -352,9 +283,9 @@ int fof(const int num_pos, const int N, const int M, const double b,
 	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
 	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	  // Find block (or none) in hashtable
-	  for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
+	  for (unsigned int adj_hash=(my_hash-hash_walk[adj*2])&hmask;
 	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
-	    if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
+	    if (htable[adj_hash].block==my_block-hash_walk[adj*2+1]) // My neighbour or collision?
 	      {
 #ifdef DEBUG
 		ngb_found++;
@@ -372,7 +303,6 @@ int fof(const int num_pos, const int N, const int M, const double b,
 			  connected_pwise(sort_idx+i, b2, sort_idx + my_start, 
 					  sort_idx + cells[adj_idx].start, xyz, cell_ids))
 			{
-			  
 			  // Connect the domains - Disjoint sets union algorithm
 			  if (cells[my_root].rank < cells[adj_root].rank) // Add me to adj
 			    cells[my_cell].parent = cells[my_root].parent = adj_root;
@@ -409,135 +339,19 @@ int fof(const int num_pos, const int N, const int M, const double b,
       htable[cur].block = my_block;
       htable[cur].num_subcells = my_cell - first_cell_in_block;
     }
-  
-      
-  free(htable);
-
-  // Renumber the domains from 0...num_doms-1
-  // A bit hack-y, but use the cell starts to hold the domains
-  int num_doms = 0;
-  for (size_t i=0;i<num_cells;++i)
-    if (cells[i].parent==i)
-      cells[i].start = num_doms++; 
-
-  unsigned int domain = find_path_compress(0, cells);
-  domains[sort_idx[0]] = cells[domain].start;
-  int64_t cur_cell_id = cell_ids[sort_idx[0]];
-  for (size_t i=0,j=1;j<num_pos; ++j)
-    {
-      /* Find root of this domain (path compression of disjoint sets) */
-      if (cell_ids[sort_idx[j]]!=cur_cell_id)
-	{
-	  cur_cell_id = cell_ids[sort_idx[j]];
-	  domain = find_path_compress(++i, cells);
-	}
-      domains[sort_idx[j]] = cells[domain].start; // see hack above
-    }
-
-#ifdef DEBUG
-  int max_rank = cells[0].rank;
-  for (size_t i=1;i<num_cells;++i)
-    if (cells[i].rank>max_rank)
-	max_rank = cells[i].rank;
-
-  float frac_found = ngb_found/ (13.0*num_cells),
-    cmp_per_pt = (float)pt_cmp / (float)num_pos;
-  printf("%.3f average distance comparisons per point (%d)\n%d hash collisions, %d domains created\n%.4f cells found/search (%d total)\n", cmp_per_pt, pt_cmp, search_collisions, num_doms, frac_found, ngb_found);
-  printf("%.2f%% fill collisions (c.f. %.2f%% for perfect hashing)\n", (float)fill_collisions*100.0/num_blocks, 100.0*expected_collisions);
-
-  printf("Max stack usage %d, max rank %d, point comparisons %d\n",max_stack_usage, max_rank, pt_cmp);
-  max_stack_usage=0;
-#endif
-
-  free(cells);
-
-  return num_doms;
 }
 
-int fof_periodic64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
-		   const double *restrict xyz, const int64_t *restrict cell_ids, 
-		   const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
-		   int32_t *restrict domains,
-		   const double desired_load)
+static void loop_cells_periodic(const int num_pos, const unsigned int hash_walk[], const int64_t *restrict cell_ids, const int64_t *restrict sort_idx, 
+				const unsigned int hprime, const unsigned int hmask, const double b2, const double *restrict xyz, const int64_t* pad_idx, const int num_orig, 
+				SubCell *restrict cells, HashBlock *restrict htable)
 {
   /*
-    Friends of Friends by binning into cells.
+    As for loop_cells except for each point check it is not an image
 
-    num_pos  - The number of points
-    N        - Multiplicative factor such that cell(i,j,k) = M i + N j + k. 
-               Usually 3 mod 4 for maximum bitwise independence
-    M        - prime bigger than N^2
-    num_orig - Number of points that are not 'false' images
-    b        - The linking length
-    xyz      - (num_pos * 3) array of (unsorted) points
-    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
-    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
-               by cell)
-    pad_idx  - the indices of the images in the original array (for linking)
-    domains  - (num_pos,) integer output array for the domains
-    desired_load - Load for the hash table (0.6 probably best)
-    Returns filled domains, integers s.t.  (same integer)=>connected
+    num_orig - First num_orig points in the xyz array are real, subsequent are images
+    pad_idx  - (num_pos - num_orig) array of indices of real point per image.
+   */
 
-    Implementation uses a hash-table and the disjoint sets algorithm to link
-    cells.
-  */
-  
-  int num_cells=0, num_blocks=1;
-
-  const unsigned int walk_ngbs[13] = WALK_NGB(M,N);
-
-  const double b2 = b*b;
-
-  /* Count the number of cells */
-  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
-    if (cell_ids[sort_idx[i]]!=last_id)
-      {
-	num_cells++;
-	// Check if high bits (i.e. block) is different
-	if ((cell_ids[sort_idx[i]]^last_id)>>6!=0) 
-	  num_blocks++;
-
-	last_id = cell_ids[sort_idx[i]];
-      }
-
-
-  // Find the next power of 2 large enough to hold table at desired load
-  int tab_size=0;
-  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_blocks) 
-    tab_size++;
-
-  if (tab_size==MAX_TAB_NO)
-    return -2; // Table too big
-
-  const int64_t hsize = TAB_START<<tab_size;
-  const unsigned int hprime = HASH_PRIMES[tab_size],
-    hmask = hsize-1;
-
-  const unsigned int hash_ngb[13] = HASH_NGB(walk_ngbs, hprime, hmask);
-
-#ifdef DEBUG
-  float actual_load = (float)num_blocks / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
-  printf("Number of blocks %d, %.2f%% of number of positions (%u)\n", num_blocks, num_blocks*100.0/num_pos, (unsigned int)num_pos);
-  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
-  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
-  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*desired_load, 100.0*actual_load);
-
-  printf("Platform int size %d\nHash cell size %d bytes\n",
-	 (int)sizeof(int), (int)sizeof(HashBlock));
-  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
-#endif
-
-  // Hashtable of indices
-  HashBlock *htable = calloc(hsize, sizeof(HashBlock));
-  if (!htable)
-    return -3; // not enough mem.
-
-  SubCell* cells = malloc(num_cells * sizeof(SubCell));
-
-  if (!cells)
-    return -1;
-
-  // Loop over all points
   for (unsigned int i=0, my_cell=0; i<num_pos;)
     {
       const int64_t my_block = cell_ids[sort_idx[i]]>>6;
@@ -619,9 +433,9 @@ int fof_periodic64(const int num_pos, const int N, const int M, const int num_or
 	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
 	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	  // Find block (or none) in hashtable
-	  for (unsigned int adj_hash=(my_hash-hash_ngb[adj])&hmask;
+	  for (unsigned int adj_hash=(my_hash-hash_walk[adj*2])&hmask;
 	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
-	    if (htable[adj_hash].block==my_block-walk_ngbs[adj]) // My neighbour or collision?
+	    if (htable[adj_hash].block==my_block-hash_walk[adj*2+1]) // My neighbour or collision?
 	      {
 #ifdef DEBUG
 		ngb_found++;
@@ -676,8 +490,106 @@ int fof_periodic64(const int num_pos, const int N, const int M, const int num_or
       htable[cur].block = my_block;
       htable[cur].num_subcells = my_cell - first_cell_in_block;
     }
+}
+
+int fof64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+	  const double *restrict xyz, const int64_t *restrict cell_ids, 
+	  const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
+	  int32_t *restrict domains, const double desired_load)
+{
+  /*
+    Friends of Friends by binning into cells.
+
+    num_pos  - The number of points
+    N        - Multiplicative factor such that cell(i,j,k) = M i + N j + k. 
+               Usually 3 mod 4 for maximum bitwise independence
+    M        - prime bigger than N^2
+    num_orig - Number of points that are not 'false' images
+    b        - The linking length
+    xyz      - (num_pos * 3) array of (unsorted) points
+    cell_ids - The cell values for each point (s.t. i=x/cell_width etc.)
+    sort_idx - An index such that cell_ids[sort_idx] is ascending (ordered points
+               by cell)
+    [pad_idx]- Optional indices of the images in the original array (for linking)
+    domains  - (num_pos,) integer output array for the domains
+    desired_load - Load for the hash table (0.6 probably best)
+    Returns filled domains, integers s.t.  (same integer)=>connected
+
+    Implementation uses a hash-table and the disjoint sets algorithm to link
+    cells.
+  */
   
-      
+  int num_cells=0, num_blocks=1;
+
+  const double b2 = b*b;
+
+  /* Count the number of cells */
+  for (int64_t i=1,last_id = cell_ids[sort_idx[num_cells++]];i<num_pos;++i)
+    if (cell_ids[sort_idx[i]]!=last_id)
+      {
+	num_cells++;
+	// Check if high bits (i.e. block) is different
+	if ((cell_ids[sort_idx[i]]^last_id)>>6!=0) 
+	  num_blocks++;
+
+	last_id = cell_ids[sort_idx[i]];
+      }
+
+  // Find the next power of 2 large enough to hold table at desired load
+  int tab_size=0;
+  while (tab_size<MAX_TAB_NO && (TAB_START<<tab_size)*desired_load<num_blocks) 
+    tab_size++;
+
+  if (tab_size==MAX_TAB_NO)
+    return -2; // Table too big
+
+  const int64_t hsize = TAB_START<<tab_size;
+  const unsigned int hprime = HASH_PRIMES[tab_size],
+    hmask = hsize-1;
+
+#ifdef DEBUG
+  float actual_load = (float)num_blocks / hsize, expected_collisions= (-1.0 - log(1-actual_load)/actual_load);
+  printf("Number of blocks %d, %.2f%% of number of positions (%u)\n", num_blocks, num_blocks*100.0/num_pos, (unsigned int)num_pos);
+  printf("Number of cells %d, %.2f%% of number of positions (%u)\n", num_cells, num_cells*100.0/num_pos, (unsigned int)num_pos);
+  printf("Table size 1024<<%d, prime %u\n", tab_size, hprime);
+  printf("Desired load %.1f%%\nActual load %.1f%%\n", 100.0*desired_load, 100.0*actual_load);
+
+  printf("Platform int size %d\nHash cell size %d bytes\n",
+	 (int)sizeof(int), (int)sizeof(HashBlock));
+  max_stack_usage = search_collisions = ngb_found = fill_collisions = pt_cmp = 0;
+#endif
+
+  SubCell* cells = malloc(num_cells * sizeof(SubCell));
+  if (!cells)
+    return -1; // Not enough mem.
+
+  // A walk over the 13 blocks within sqrt(3)/4 cell widths, and having idx<me, 
+  // where idx(i,j,k)=Mi+Nj+k. Store (hash(idx),idx) for each neighbour,
+  // where hash(idx)= (ngb * prime) mod N
+
+  const unsigned int hash_walk[26] = {
+    N*hprime&hmask, N, M*hprime&hmask, M, hprime&hmask, 1, 
+    (M+N)*hprime&hmask, M+N, (N+1)*hprime&hmask, N+1, (M-N)*hprime&hmask, M-N, 
+    (N-1)*hprime&hmask, N-1, (M+1)*hprime&hmask, M+1, (M-1)*hprime&hmask, M-1, 
+    (M+N-1)*hprime&hmask, M+N-1, (M-N-1)*hprime&hmask, M-N-1, 
+    (M-N+1)*hprime&hmask, M-N+1, (M+N+1)*hprime&hmask, M+N+1};
+
+  // Hashtable of indices
+  HashBlock *htable = calloc(hsize, sizeof(HashBlock));
+
+  if (!htable)
+    {
+      free(cells);
+      return -2; // not enough mem.
+    }
+
+  if (num_orig==num_pos) // Non-periodic case
+    loop_cells(num_pos, hash_walk, cell_ids, sort_idx, hprime, 
+	       hmask, b2, xyz, cells, htable);
+  else
+    loop_cells_periodic(num_pos, hash_walk, cell_ids, sort_idx, 
+			hprime, hmask, b2, xyz, pad_idx, num_orig, cells, htable);
+
   free(htable);
 
   // Renumber the domains from 0...num_doms-1
