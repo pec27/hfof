@@ -79,7 +79,6 @@ def fof(pos, rcut, boxsize=None, log=None):
 
     if boxsize is not None:
         old_idx, pos = pad_cube(pos, boxsize, rcut)
-        assert(old_idx.max()<n)
 
     pos_min, pos_max = minmax(pos)
     
