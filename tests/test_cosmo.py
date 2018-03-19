@@ -3,7 +3,7 @@ Test data from cosmological simulation (subsampled to 32^3)
 """
 from __future__ import absolute_import, print_function
 import numpy as np
-from hfof import fof, fof_periodic
+from hfof import fof
 from os import path
 
 _data = None
@@ -50,7 +50,7 @@ def test_cosmo_periodic():
     pos = get_cosmo_pos()
 
     for rcut, n in ndom_prd.items():
-        domains = fof_periodic(pos, 1.0, rcut)
+        domains = fof(pos, rcut, boxsize=1.0)
         n_doms = len(np.unique(domains))
         assert(n==n_doms)
         print(rcut, n_doms, n)
@@ -73,7 +73,7 @@ def test_shift_scale():
 
     #Periodic (scale boxsize too)
     for rcut, n in ndom_prd.items():
-        domains = fof_periodic(pos, scale, rcut*scale)
+        domains = fof(pos, rcut*scale, boxsize=scale)
         n_doms = len(np.unique(domains))
         assert(n==n_doms)
         print(rcut, n_doms, n)
