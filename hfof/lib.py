@@ -77,6 +77,16 @@ def _initlib():
     func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), ndpointer(int32)]
 
+    # Periodic image insertion
+    # int pad_box(const double inv_boxsize, const double r_pad, const int num_pos, 
+    #          const double *restrict pos, double *restrict periodic_pos)
+    # 	      int64_t *restrict pad_idx, const int max_images)
+
+    func = _libhfof.pad_box
+    func.restype = ctypes.c_int
+    func.argtypes = [ctypes.c_double, ctypes.c_double,ctypes.c_int,
+                     ndpointer(float64), ndpointer(float64), ndpointer(int64), ctypes.c_int]
+    
     return _libhfof
 
 def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
@@ -169,3 +179,52 @@ def morton_idx(pts):
     lib.get_morton_idx(p, npts, inv_cell_width, out)
     return out
     
+def pad_scaled_cube(pts, boxsize, r_pad, log=None):
+    """
+
+    For a set of points, find images in [0,boxsize)^3, scale this [0,1)^3 and
+    then add the right-hand repeats in [1,r_pad/boxsize) for each dimension
+    (incl. repeats of repeats). Return arrays of new positions (scaled and 
+    padded) along with the corresponding indices in the original array. The 
+    scaled points are always the first N pts in the new array
+
+    pts     - (N,3) array
+    boxsize - size for periodicity
+    r_pad   - edge to pad onto [boxsize, boxsize+r_pad)
+    
+    returns pad_idx, pos
+       pad_idx - (N_new) indices of the positions used to pad
+       new_pos - (N+N_new, ndim) array of scaled pos + padded pos [0, 1+r_pad/boxsize]
+
+    """
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C']) 
+    inv_boxsize = 1.0/boxsize
+    N = len(p)
+
+    fudge = 2.0 
+    guess_images = int(fudge*N*3.0*r_pad/boxsize) + 1
+    
+    new_pos = empty((N+guess_images,3), dtype=float64)
+    pad_idx = empty((guess_images,), dtype=int64)
+    
+    new_ims = lib.pad_box(inv_boxsize, r_pad, N, p, new_pos, pad_idx, guess_images)
+    while new_ims<0:
+        guess_images *= 2
+        if log is not None:
+            print('Too many images! Doubling size...', file=log)
+
+        new_pos = empty((N+guess_images,3), dtype=float64)
+        pad_idx = empty((guess_images,), dtype=int64)
+        new_ims = lib.pad_box(inv_boxsize, r_pad, N, p, new_pos, pad_idx, guess_images)
+        
+    if log is not None:
+        print('{:,} images (c.f. guessed={:,})'.format(new_ims, guess_images), file=log)
+
+    # Arrays contain only used vals
+    new_pos = new_pos[:N+new_ims] # originals+images
+    pad_idx = pad_idx[:new_ims] # images
+    return pad_idx, new_pos
+
+
+
