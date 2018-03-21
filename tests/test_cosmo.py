@@ -4,6 +4,7 @@ Test data from cosmological simulation (subsampled to 32^3)
 from __future__ import absolute_import, print_function
 import numpy as np
 from hfof import fof
+from numpy.random import RandomState
 from os import path
 
 _data = None
@@ -77,3 +78,30 @@ def test_shift_scale():
         n_doms = len(np.unique(domains))
         assert(n==n_doms)
         print(rcut, n_doms, n)
+
+def test_consistent_groups():
+    """ Shuffling gives consistent groups """
+    # Note we dont actually need to check for renumbering between hfof and 
+    # itself because even if you shuffle the points they end up in the same 
+    # cells, which are treated in order, so the group numbers (at each 
+    # position) are guaranteed to be the same. Only if you check against 
+    # another FOF do you need to check the numbering.
+
+    pos = get_cosmo_pos()
+    N = pos.shape[0]
+    rs = RandomState(seed=123)
+    idx = np.arange(N)
+    rs.shuffle(idx)
+    rcut = 0.01
+
+
+    # Non=periodic
+    doms1 = fof(pos, rcut)
+    doms2 = fof(pos[idx], rcut)
+
+    assert(np.all(np.equal(doms1[idx], doms2)))
+    # Periodic
+    doms1 = fof(pos, rcut, boxsize=0.8)
+    doms2 = fof(pos[idx], rcut, boxsize=0.8)
+
+    assert(np.all(np.equal(doms1[idx], doms2)))
