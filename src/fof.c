@@ -370,7 +370,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   return num_doms;
 }
 
-int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+int fof_periodic(const int num_pos, const unsigned int N, const unsigned int M, const int num_orig, const double b, 
 		 const double *restrict xyz, const int64_t *restrict cell_ids, 
 		 const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 		 int32_t *restrict domains)
@@ -399,7 +399,7 @@ int fof_periodic(const int num_pos, const int N, const int M, const int num_orig
 
   int num_cells=1;
 
-  const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
+  const unsigned int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
   const double b2 = b*b;
 
