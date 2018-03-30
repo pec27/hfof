@@ -212,7 +212,7 @@ static inline int connected_pwise(const int64_t *restrict cur_stop, const double
 typedef struct {
   int64_t block; // ID of cell
   uint32_t idx; // index of cell (when ordered)
-  unsigned int num_subcells:7, fill:1;
+  unsigned int free_subcells:6, fill:1;
 } HashBlock;
 
 static void loop_cells(const unsigned int num_pos, const int64_t delta_ngb[], 
@@ -293,7 +293,7 @@ static void loop_cells(const unsigned int num_pos, const int64_t delta_ngb[],
 		ngb_found++;
 #endif
 		// Go over every subcell in adj
-		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
+		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=64-htable[adj_hash].free_subcells;
 		     ctr--; ++adj_idx)
 		  if (connection_mask[0]>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
 		    {
@@ -339,7 +339,7 @@ static void loop_cells(const unsigned int num_pos, const int64_t delta_ngb[],
       
       htable[cur].idx = first_cell_in_block;
       htable[cur].block = my_block;
-      htable[cur].num_subcells = my_cell - first_cell_in_block;
+      htable[cur].free_subcells = 64-(my_cell - first_cell_in_block);
     }
 }
 
@@ -445,7 +445,7 @@ static void loop_cells_periodic(const unsigned int num_pos, const int64_t delta_
 		ngb_found++;
 #endif
 		// Go over every subcell in adj
-		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=htable[adj_hash].num_subcells;
+		for (unsigned int adj_idx = htable[adj_hash].idx, ctr=64-htable[adj_hash].free_subcells;
 		     ctr--; ++adj_idx)
 		  if (connection_mask[0]>>cells[adj_idx].subcell&1) // |p_me - p_adj|<b possible
 		    {
@@ -492,7 +492,7 @@ static void loop_cells_periodic(const unsigned int num_pos, const int64_t delta_
       
       htable[cur].idx = first_cell_in_block;
       htable[cur].block = my_block;
-      htable[cur].num_subcells = my_cell - first_cell_in_block;
+      htable[cur].free_subcells = 64 - (my_cell - first_cell_in_block);
     }
 }
 
