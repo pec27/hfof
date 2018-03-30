@@ -215,19 +215,21 @@ typedef struct {
   unsigned int num_subcells:7, fill:1;
 } HashBlock;
 
-static void loop_cells(const unsigned int num_pos, const unsigned int hash_walk[], 
-		      const int64_t *restrict cell_ids, 
-		      const int64_t *restrict sort_idx, 
-		      const unsigned int hprime, const unsigned int hmask, 
-		      const double b2, const double *restrict xyz, 
-		      SubCell *restrict cells, HashBlock *restrict htable)
+static void loop_cells(const unsigned int num_pos, const int64_t delta_ngb[], 
+		       const unsigned int delta_hash[], 
+		       const int64_t *restrict cell_ids, 
+		       const int64_t *restrict sort_idx, 
+		       const unsigned int hprime, const unsigned int hmask, 
+		       const double b2, const double *restrict xyz, 
+		       SubCell *restrict cells, HashBlock *restrict htable)
 {
   /*
     Sequentially insert every point (+cell & block) into a hash-table a link to 
     neighbours.
     
     num_pos   - number of xyz coords
-    hash_walk - pairs of (idx*P mod N, idx) for relative indices of neighbouring blocks
+    delta_ngb - Delta to index of neighbouring blocks (13 with idx<me)
+    delta_hash- Delta to hash of neighboues (i.e. delta_ngb[i]*P mod N)
     cell_ids  - cell idx for every point
     sort_idx  - indices to sort points s.t. cell_ids[sort_idx[...]] are ordered
     hprime    - hash prime
@@ -283,9 +285,9 @@ static void loop_cells(const unsigned int num_pos, const unsigned int hash_walk[
 	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
 	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	  // Find block (or none) in hashtable
-	  for (unsigned int adj_hash=(my_hash-hash_walk[adj*2])&hmask;
+	  for (unsigned int adj_hash=(my_hash-delta_hash[adj])&hmask;
 	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
-	    if (htable[adj_hash].block==my_block-hash_walk[adj*2+1]) // My neighbour or collision?
+	    if (htable[adj_hash].block==my_block-delta_ngb[adj]) // My neighbour or collision?
 	      {
 #ifdef DEBUG
 		ngb_found++;
@@ -341,7 +343,9 @@ static void loop_cells(const unsigned int num_pos, const unsigned int hash_walk[
     }
 }
 
-static void loop_cells_periodic(const int num_pos, const unsigned int hash_walk[], const int64_t *restrict cell_ids, const int64_t *restrict sort_idx, 
+static void loop_cells_periodic(const unsigned int num_pos, const int64_t delta_ngb[], 
+				const unsigned int delta_hash[], 
+				const int64_t *restrict cell_ids, const int64_t *restrict sort_idx, 
 				const unsigned int hprime, const unsigned int hmask, const double b2, const double *restrict xyz, const int64_t* pad_idx, const int num_orig, 
 				SubCell *restrict cells, HashBlock *restrict htable)
 {
@@ -433,9 +437,9 @@ static void loop_cells_periodic(const int num_pos, const unsigned int hash_walk[
 	for (unsigned int walk_blocks=*connection_mask++, adj=walk_blocks&0xF;
 	     adj!=13;adj=(walk_blocks>>=4)&0xF, connection_mask++)
 	  // Find block (or none) in hashtable
-	  for (unsigned int adj_hash=(my_hash-hash_walk[adj*2])&hmask;
+	  for (unsigned int adj_hash=(my_hash-delta_hash[adj])&hmask;
 	       htable[adj_hash].fill; adj_hash=(adj_hash+1)&hmask)
-	    if (htable[adj_hash].block==my_block-hash_walk[adj*2+1]) // My neighbour or collision?
+	    if (htable[adj_hash].block==my_block-delta_ngb[adj]) // My neighbour or collision?
 	      {
 #ifdef DEBUG
 		ngb_found++;
@@ -492,7 +496,7 @@ static void loop_cells_periodic(const int num_pos, const unsigned int hash_walk[
     }
 }
 
-int fof64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
+int fof64(const int num_pos, const int N, const int64_t M, const int num_orig, const double b, 
 	  const double *restrict xyz, const int64_t *restrict cell_ids, 
 	  const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 	  int32_t *restrict domains, const double desired_load)
@@ -567,12 +571,15 @@ int fof64(const int num_pos, const int N, const int M, const int num_orig, const
   // where idx(i,j,k)=Mi+Nj+k. Store (hash(idx),idx) for each neighbour,
   // where hash(idx)= (ngb * prime) mod N
 
-  const unsigned int hash_walk[26] = {
-    N*hprime&hmask, N, M*hprime&hmask, M, hprime&hmask, 1, 
-    (M+N)*hprime&hmask, M+N, (N+1)*hprime&hmask, N+1, (M-N)*hprime&hmask, M-N, 
-    (N-1)*hprime&hmask, N-1, (M+1)*hprime&hmask, M+1, (M-1)*hprime&hmask, M-1, 
-    (M+N-1)*hprime&hmask, M+N-1, (M-N-1)*hprime&hmask, M-N-1, 
-    (M-N+1)*hprime&hmask, M-N+1, (M+N+1)*hprime&hmask, M+N+1};
+  const int64_t delta_ngb[13] = {N, M, 1, M+N, N+1, M-N, N-1, M+1, M-1, M+N-1, 
+				 M-N-1, M-N+1, M+N+1};
+
+  const unsigned int delta_hash[13] = 
+    {N*hprime&hmask, M*hprime&hmask, hprime&hmask, (M+N)*hprime&hmask, 
+     (N+1)*hprime&hmask, (M-N)*hprime&hmask, (N-1)*hprime&hmask, 
+     (M+1)*hprime&hmask, (M-1)*hprime&hmask, (M+N-1)*hprime&hmask, 
+     (M-N-1)*hprime&hmask, (M-N+1)*hprime&hmask, 
+     (M+N+1)*hprime&hmask};
 
   // Hashtable of indices
   HashBlock *htable = calloc(hsize, sizeof(HashBlock));
@@ -584,10 +591,10 @@ int fof64(const int num_pos, const int N, const int M, const int num_orig, const
     }
 
   if (num_orig==num_pos) // Non-periodic case
-    loop_cells(num_pos, hash_walk, cell_ids, sort_idx, hprime, 
+    loop_cells(num_pos, delta_ngb, delta_hash, cell_ids, sort_idx, hprime, 
 	       hmask, b2, xyz, cells, htable);
   else
-    loop_cells_periodic(num_pos, hash_walk, cell_ids, sort_idx, 
+    loop_cells_periodic(num_pos, delta_ngb, delta_hash, cell_ids, sort_idx, 
 			hprime, hmask, b2, xyz, pad_idx, num_orig, cells, htable);
 
   free(htable);

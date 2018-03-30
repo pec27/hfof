@@ -56,25 +56,18 @@ def _initlib():
                      ctypes.c_int, ctypes.c_int, ndpointer(int64)]
 
     # Friends of Friends linking periodic (on 4x4x4 cells)
-    # int fof64(const int num_pos, const int N, const int M, const int num_orig, const double b, 
-    #		const double *restrict xyz, const int64_t *restrict cell_ids, 
-    #		const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
-    #		int32_t *restrict domains,
-    #		const double desired_load)
+    # see src/fof64.c
     func = _libhfof.fof64
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double, 
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int64,ctypes.c_int,ctypes.c_double, 
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
                      ndpointer(int32), ctypes.c_double]
 
     # Friends of Friends periodic linking
-    # int fof_periodic(const int num_pos, const int N, const int M, const int num_orig, 
-    #		 const double boxsize, const double b, 
-    #		 const double *restrict xyz, const int64_t *restrict cells, 
-    #		 const int64_t *restrict sort_idx, int32_t *restrict domains)
+    # see src/fof.c
     func = _libhfof.fof_periodic
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_double,
+    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int64,ctypes.c_int,ctypes.c_double,
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), ndpointer(int32)]
 
     # Periodic image insertion
