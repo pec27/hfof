@@ -42,18 +42,18 @@ def _initlib():
     func = _libhfof.find_lattice
     func.restype = None
     func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
-                     ctypes.c_int, ctypes.c_int, ndpointer(int64)]
+                     ctypes.c_int, ctypes.c_int64, ndpointer(int64)]
 
     # Find the block+cell for each point
     # void blocks_cells(const double min_x, const double min_y, const double min_z, 
     #		  const double *pos, const int num_pos, 
-    #		  const double inv_cell_width, const int ny, const int nx, 
+    #		  const double inv_cell_width, const int Py, const int64_t Px, 
     #		  int64_t *out)
     func = _libhfof.blocks_cells
     func.restype = None
     func.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double,
                      ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
-                     ctypes.c_int, ctypes.c_int, ndpointer(int64)]
+                     ctypes.c_int, ctypes.c_int64, ndpointer(int64)]
 
     # Friends of Friends linking periodic (on 4x4x4 cells)
     # see src/fof64.c

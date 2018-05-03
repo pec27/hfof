@@ -102,7 +102,7 @@ typedef struct {
 
 void blocks_cells(const double min_x, const double min_y, const double min_z, 
 		  const double *restrict pos, const int N, 
-		  const double inv_cell_width, const int ny, const int nx, 
+		  const double inv_cell_width, const int Py, const int64_t Px, 
 		  int64_t *restrict out)
 {
   /*
@@ -112,7 +112,7 @@ void blocks_cells(const double min_x, const double min_y, const double min_z,
     i.e. blocks of 4x4x4 cells
 
     where
-      block := (ix>>2)*Nx + (iy>>2)*Ny + (iz>>2) 
+      block := (ix>>2)*Px + (iy>>2)*Py + (iz>>2) 
       cell := (ix&3)<<4 | (iy&3)<<2 | (iz&0x3) # (i.e. 0-63)
     
       ix := (int64_t)((x - min_x)*inv_cell_width)
@@ -133,7 +133,6 @@ void blocks_cells(const double min_x, const double min_y, const double min_z,
     returns void
    */
 
-  const int64_t NY=ny, NX = nx;
 
   // Pre-multiplied top_left corner of box
   const double x_begin = -min_x*inv_cell_width, 
@@ -145,7 +144,8 @@ void blocks_cells(const double min_x, const double min_y, const double min_z,
 	iy = (int64_t)(pos[i*3+1]*inv_cell_width + y_begin),
 	iz = (int64_t)(pos[i*3+2]*inv_cell_width + z_begin);
 
-      out[i] = ((ix>>2)*NX+(iy>>2)*NY + (iz>>2))<<6 | (ix&3)<< 4 | (iy&3)<<2 | (iz&3);
+      out[i] = ((ix>>2)*Px + (iy>>2)*Py + (iz>>2))<<6 | 
+	(ix&3)<< 4 | (iy&3)<<2 | (iz&3);
 
     }
 
