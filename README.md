@@ -4,7 +4,7 @@ hfof
 ### Friends of Friends group finding via spatial hashing
 
 
-hfof is an open-source friends-of-friends (FoF) group finder in 3d (periodic and non-periodic), based on the following paper (ZZZ arxiv link when public).
+hfof is an open-source friends-of-friends (FoF) group finder in 3d (periodic and non-periodic), based on the following paper: ![arxiv:1805.04911](https://arxiv.org/abs/1805.04911).
 
 Once you have downloaded hfof you will probably want to do the following:
 
