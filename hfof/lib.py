@@ -16,8 +16,8 @@ def _initlib():
     if _libhfof is not None:
         return _libhfof
 
+    name = path.join(path.dirname(path.abspath(__file__)), 'libhfof.so')
 
-    name = path.join(path.dirname(path.abspath(__file__)), '../build/libhfof.so')
     if not path.exists(name):
         raise Exception('Library '+str(name)+' does not exist. Maybe you forgot to make it?')
 

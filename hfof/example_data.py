@@ -11,7 +11,7 @@ def get_pos():
     if _data is not None:
         return _data
 
-    name = path.join(path.dirname(path.abspath(__file__)), '../tests/cosmo32768.dat')
+    name = path.join(path.dirname(path.abspath(__file__)), 'tests/cosmo32768.dat')
     if not path.exists(name):
         raise Exception('File '+str(name)+' does not exist. Maybe I dont understand your OS?')
 
