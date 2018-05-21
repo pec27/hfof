@@ -5,28 +5,29 @@ from Cython.Build import cythonize
 from distutils.extension import Extension
 
 from distutils.core import setup, Extension
-from distutils.command.build_ext import build_ext
+from distutils.command.build_ext import build_ext as build_ext_base
 
 
 class CTypes(Extension): pass
 
-class build_ext(build_ext):
-    # https://stackoverflow.com/a/34830639
+class build_ext(build_ext_base):
+    # based on https://stackoverflow.com/a/34830639
+    # modified base class invocation to support python 2
     def build_extension(self, ext):
         self._ctypes = isinstance(ext, CTypes)
-        return super().build_extension(ext)
+        return build_ext_base.build_extension(self, ext)
 
     def get_export_symbols(self, ext):
         if self._ctypes:
             return ext.export_symbols
-        return super().get_export_symbols(ext)
+        return build_ext_base.get_export_symbols(self, ext)
 
     def get_ext_filename(self, ext_name):
         # remove the python 3 prefixes which we cannot determine
         # at runtime.
         if self._ctypes:
             return ext_name + '.so'
-        return super().get_ext_filename(ext_name)
+        return build_ext_base.get_ext_filename(self, ext_name)
 
 extensions = [
         CTypes("hfof.libhfof", [
