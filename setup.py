@@ -1,43 +1,5 @@
-from distutils.core import setup
-import numpy 
+from setuptools import setup, Extension
 
-from Cython.Build import cythonize
-from distutils.extension import Extension
-
-from distutils.core import setup, Extension
-from distutils.command.build_ext import build_ext as build_ext_base
-
-
-class CTypes(Extension): pass
-
-class build_ext(build_ext_base):
-    # based on https://stackoverflow.com/a/34830639
-    # modified base class invocation to support python 2
-    def build_extension(self, ext):
-        self._ctypes = isinstance(ext, CTypes)
-        return build_ext_base.build_extension(self, ext)
-
-    def get_export_symbols(self, ext):
-        if self._ctypes:
-            return ext.export_symbols
-        return build_ext_base.get_export_symbols(self, ext)
-
-    def get_ext_filename(self, ext_name):
-        # remove the python 3 prefixes which we cannot determine
-        # at runtime.
-        if self._ctypes:
-            return ext_name + '.so'
-        return build_ext_base.get_ext_filename(self, ext_name)
-
-extensions = [
-        CTypes("hfof.libhfof", [
-            "src/fof.c",  "src/fof64.c", "src/testing.c", "src/periodic.c"],
-            include_dirs=["src/", numpy.get_include()],
-            extra_compile_args=['-O3', '-g'],
-            extra_link_args=['-O3', '-g'],
-            libraries = ['m'],
-            )
-        ]
 
 def find_version(path):
     import re
@@ -49,22 +11,19 @@ def find_version(path):
         return version_match.group(1)
     raise RuntimeError("Version not found")
 
-setup(name="hfof", version=find_version("hfof/version.py"),
+lib = Extension('build.libhfof',
+                sources = ["src/fof.c",  "src/fof64.c", "src/testing.c", "src/periodic.c"])
+
+setup(name='hfof', version=find_version("hfof/version.py"),
       author="Peter Creasey",
       author_email="pec27",
-      description="",
+      description='Friends of Friends with spatial hashing (hfof)',
       url="http://github.com/pec27/hfof",
-      zip_safe=False,
       package_dir = {'hfof': 'hfof'},
-      packages = [
-        'hfof', 'hfof.tests',
-      ],
-      package_data = {
-        'hfof': ['tests/*.dat']
-      },
-      license='GPL3',
-      install_requires=['numpy', 'cython'],
-      ext_modules = cythonize(extensions),
-      cmdclass={'build_ext' : build_ext}
-      )
+      packages = ['hfof', 'hfof.tests'],
+      license='MIT',
+      install_requires=['numpy', 'scipy'],
+      ext_modules = [lib],
+      test_suite='nose.collector',
+      tests_require=['nose'])
 

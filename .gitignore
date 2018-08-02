@@ -1,3 +1,5 @@
 *~
 *.pyc
 build
+hfof.egg-info
+dist

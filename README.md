@@ -10,23 +10,14 @@ Once you have downloaded hfof you will probably want to do the following:
 
 ## Install
 
-Build the C-functions with
+Install (also builds the C-functions)
 
 ```bash
-make
+python setup.py install [--prefix=/myhome/my-site-packages]
 ```
-
-Run the tests, e.g. with
-
+and run the tests,
 ```bash
-nosetests tests/
-```
-(use `-v` verbose or `-vs` for really verbose)
-
-Add hfof to your PYTHONPATH, perhaps in your .profile e.g.
-```bash
-PYTHONPATH="${PYTHONPATH}:${HOME}/codes/hfof"
-export PYTHONPATH
+python setup.py test
 ```
 
 ## Examples

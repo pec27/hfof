@@ -6,6 +6,7 @@ from numpy import float64, empty, array, int32, zeros, float32, require, int64, 
 from numpy import roll, diff, flatnonzero, uint64, cumsum, square, unique
 from os import path
 import sys
+import sysconfig
 
 _libhfof = None
 
@@ -16,8 +17,9 @@ def _initlib():
     if _libhfof is not None:
         return _libhfof
 
-    name = path.join(path.dirname(path.abspath(__file__)), 'libhfof.so')
+    suffix = sysconfig.get_config_var('SO')
 
+    name = path.join(path.dirname(path.abspath(__file__)), '../build/libhfof'+suffix)
     if not path.exists(name):
         raise Exception('Library '+str(name)+' does not exist. Maybe you forgot to make it?')
 
