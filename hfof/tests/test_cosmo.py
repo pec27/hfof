@@ -82,3 +82,13 @@ def test_consistent_groups():
     doms2 = fof(pos[idx], rcut, boxsize=0.8)
 
     assert(np.all(np.equal(doms1[idx], doms2)))
+
+def test_cosmo_float32():
+    """ Cosmological (non-periodic) """
+    pos = np.float32(example_data.get_pos())
+
+    for rcut, n in ndom_isol.items():
+        domains = fof(pos, rcut)
+        n_doms = len(np.unique(domains))
+        assert(n==n_doms)
+        print(rcut, n_doms, n)
