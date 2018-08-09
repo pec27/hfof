@@ -100,6 +100,7 @@ def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     return out
 
 def fof_periodic64(cells, N, M, rcut, sort_idx, xyz, periodic_pad_idx=None, log=None):
+    xyz = require(xyz, dtype=float64, requirements=['C'])
     npos = xyz.shape[0]
     if periodic_pad_idx is None:
         n_orig = npos
