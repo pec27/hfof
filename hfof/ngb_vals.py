@@ -1,6 +1,7 @@
 """
 Tools for making the neighbour values (masks and hashed walk values)
 """
+from __future__ import print_function
 from numpy import mgrid, argsort, cumsum
 
 def ngb_octants():
@@ -51,12 +52,12 @@ def ngb_octants():
             octant_masks[octant].append(mask)
 #            print octant, mask, hex(mask)
             
-        print i,j,k, s
-    print 'const unsigned int walk_ngbs[13] = {'+', '.join(walk_ngbs)+'};'
-    print 'const unsigned int hash_ngb[13] = {'+', '.join(hash_walk)+'};'
+        print(i,j,k, s)
+    print('const unsigned int walk_ngbs[13] = {'+', '.join(walk_ngbs)+'};')
+    print('const unsigned int hash_ngb[13] = {'+', '.join(hash_walk)+'};')
 
 
-    print 'const unsigned char octant_masks[104] = {'+',\n'.join(', '.join(hex(x) for x in o) for o in octant_masks)+'};'
+    print('const unsigned char octant_masks[104] = {'+',\n'.join(', '.join(hex(x) for x in o) for o in octant_masks)+'};')
 
 
 def disp_corner(sc, L, ct=4):
@@ -163,20 +164,20 @@ def ngb_64():
 
         quad_lists.append(mask)
         all_checks.append(len(my_ngb)+2)
-        print sc, ', '.join(hex(x) for x in res)
+        print(sc, ', '.join(hex(x) for x in res))
         all_masks.extend(res)
 
-    print 'const unsigned int walk_ngbs[13] = {'+', '.join(walk_ngbs)+'};'
-    print 'const unsigned int hash_ngb[13] = {'+', '.join(hash_walk)+'};'
+    print('const unsigned int walk_ngbs[13] = {'+', '.join(walk_ngbs)+'};')
+    print('const unsigned int hash_ngb[13] = {'+', '.join(hash_walk)+'};')
     hw2 = [i for sub in zip(hash_walk, walk_ngbs) for i in sub]
-    print 'const unsigned int hash_walk[26] = {'+', '.join(hw2)+'};'
-    print 'const unsigned int quad_masks[64] = {\n'+', '.join(hex(q) for q in quad_lists)+'};'
-#    print 'const unsigned char octant_masks[104] = {'+',\n'.join(', '.join(hex(x) for x in o) for o in octant_masks)+'};'
-    print 'Total walks', sum(all_checks)
-    print 'static const unsigned char ngb_start[65] = {\n'+', '.join('%d'%v for v in [0] + list(cumsum(all_checks))) + '};\n'
-    print 'static const uint16_t ngb_mask[220] = {\n'+', '.join(hex(m) for m in all_masks) + '};\n'
-    print 'static const uint64_t ngb_bits[%d] = {\n'%len(bit_masks)+', '.join(hex(m) for m in bit_masks) + '};\n'
-    print 'static const uint64_t self_bits[64] = {\n'+', '.join(hex(m) for m in [find_andmask((0,0,0), j)[2] for j in range(64)]) + '};\n'
+    print('const unsigned int hash_walk[26] = {'+', '.join(hw2)+'};')
+    print('const unsigned int quad_masks[64] = {\n'+', '.join(hex(q) for q in quad_lists)+'};')
+#    print('const unsigned char octant_masks[104] = {'+',\n'.join(', '.join(hex(x) for x in o) for o in octant_masks)+'};'
+    print('Total walks', sum(all_checks))
+    print('static const unsigned char ngb_start[65] = {\n'+', '.join('%d'%v for v in [0] + list(cumsum(all_checks))) + '};\n')
+    print('static const uint16_t ngb_mask[220] = {\n'+', '.join(hex(m) for m in all_masks) + '};\n')
+    print('static const uint64_t ngb_bits[%d] = {\n'%len(bit_masks)+', '.join(hex(m) for m in bit_masks) + '};\n')
+    print('static const uint64_t self_bits[64] = {\n'+', '.join(hex(m) for m in [find_andmask((0,0,0), j)[2] for j in range(64)]) + '};\n')
 if __name__=='__main__':
 #    ngb_octants()
     ngb_64()
