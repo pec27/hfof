@@ -1,10 +1,8 @@
-from setuptools import setup
-import numpy 
+from setuptools import setup, Extension
 
-from distutils.extension import Extension
-
-from distutils.core import setup, Extension
+import numpy
 from distutils.command.build_ext import build_ext as build_ext_base
+
 class CTypes(Extension): pass
 
 class build_ext(build_ext_base):
