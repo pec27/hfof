@@ -19,7 +19,7 @@ def _initlib():
 
     suffix = sysconfig.get_config_var('SO')
 
-    name = path.join(path.dirname(path.abspath(__file__)), '../build/libhfof'+suffix)
+    name = path.join(path.dirname(path.abspath(__file__)), 'libhfof' + suffix)
     if not path.exists(name):
         raise Exception('Library '+str(name)+' does not exist. Maybe you forgot to make it?')
 
