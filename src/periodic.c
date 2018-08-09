@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-int pad_box(const double inv_boxsize, const double r_pad, const int num_pos, 
+int pad_box(const double inv_boxsize, const double r_pad, const uint32_t num_pos, 
 	    const double *restrict pos, double *restrict pad_pos, 
 	    int64_t *restrict pad_idx, const int max_images)
 {

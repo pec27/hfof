@@ -33,35 +33,35 @@ def _initlib():
     func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, ndpointer(int64)]
     
     # minimum and maximum per cell
-    # void get_min_max(const double *pos, const int num_pos, double *restrict out)
+    # void get_min_max(const double *pos, const uint32_t num_pos, double *restrict out)
     func = _libhfof.get_min_max
     func.restype = None
-    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ndpointer(ctypes.c_double)]
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_uint32, ndpointer(ctypes.c_double)]
     
     # Find the cell for each point
-    # void find_lattice(const double *pos, const int num_pos, 
+    # void find_lattice(const double *pos, const uint32_t num_pos, 
     #                   const double inv_cell_width, const int N, const int M, int64_t *out)
     func = _libhfof.find_lattice
     func.restype = None
-    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_uint32, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int64, ndpointer(int64)]
 
     # Find the block+cell for each point
     # void blocks_cells(const double min_x, const double min_y, const double min_z, 
-    #		  const double *pos, const int num_pos, 
+    #		  const double *pos, const uint32_t num_pos, 
     #		  const double inv_cell_width, const int Py, const int64_t Px, 
     #		  int64_t *out)
     func = _libhfof.blocks_cells
     func.restype = None
     func.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double,
-                     ndpointer(ctypes.c_double), ctypes.c_int, ctypes.c_double, 
+                     ndpointer(ctypes.c_double), ctypes.c_uint32, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int64, ndpointer(int64)]
 
     # Friends of Friends linking periodic (on 4x4x4 cells)
     # see src/fof64.c
     func = _libhfof.fof64
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int64,ctypes.c_int,ctypes.c_double, 
+    func.argtypes = [ctypes.c_uint32,ctypes.c_int,ctypes.c_int64,ctypes.c_uint32,ctypes.c_double, 
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
                      ndpointer(int32), ctypes.c_double]
 
@@ -69,17 +69,17 @@ def _initlib():
     # see src/fof.c
     func = _libhfof.fof_periodic
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_int,ctypes.c_int,ctypes.c_int64,ctypes.c_int,ctypes.c_double,
+    func.argtypes = [ctypes.c_uint32,ctypes.c_int,ctypes.c_int64,ctypes.c_uint32,ctypes.c_double,
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), ndpointer(int32)]
 
     # Periodic image insertion
-    # int pad_box(const double inv_boxsize, const double r_pad, const int num_pos, 
+    # int pad_box(const double inv_boxsize, const double r_pad, const uint32_t num_pos, 
     #          const double *restrict pos, double *restrict periodic_pos)
     # 	      int64_t *restrict pad_idx, const int max_images)
 
     func = _libhfof.pad_box
     func.restype = ctypes.c_int
-    func.argtypes = [ctypes.c_double, ctypes.c_double,ctypes.c_int,
+    func.argtypes = [ctypes.c_double, ctypes.c_double,ctypes.c_uint32,
                      ndpointer(float64), ndpointer(float64), ndpointer(int64), ctypes.c_int]
     
     return _libhfof

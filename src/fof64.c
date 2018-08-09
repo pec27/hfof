@@ -101,7 +101,7 @@ typedef struct {
 
 
 void blocks_cells(const double min_x, const double min_y, const double min_z, 
-		  const double *restrict pos, const int N, 
+		  const double *restrict pos, const uint32_t N, 
 		  const double inv_cell_width, const int Py, const int64_t Px, 
 		  int64_t *restrict out)
 {
@@ -496,7 +496,7 @@ static void loop_cells_periodic(const unsigned int num_pos, const int64_t delta_
     }
 }
 
-int fof64(const int num_pos, const int N, const int64_t M, const int num_orig, const double b, 
+int fof64(const uint32_t num_pos, const int N, const int64_t M, const uint32_t num_orig, const double b, 
 	  const double *restrict xyz, const int64_t *restrict cell_ids, 
 	  const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 	  int32_t *restrict domains, const double desired_load)
@@ -523,7 +523,7 @@ int fof64(const int num_pos, const int N, const int64_t M, const int num_orig, c
     cells.
   */
   
-  int num_cells=0, num_blocks=1;
+  unsigned int num_cells=0, num_blocks=1;
 
   const double b2 = b*b;
 

@@ -52,7 +52,7 @@ typedef struct {
     idx; // index of cell (when ordered)
 } HashCell;
 
-void get_min_max(const double *pos, const int num_pos, double *restrict out)
+void get_min_max(const double *pos, const uint32_t num_pos, double *restrict out)
 {
   /*
     Find the minimum and maximum (faster than numpy min & max calls)
@@ -96,7 +96,7 @@ void get_min_max(const double *pos, const int num_pos, double *restrict out)
   out[5] = max_z;
 }
 
-void find_lattice(const double *pos, const int num_pos, const double inv_cell_width, const int NY, const int64_t NX, int64_t *out)
+void find_lattice(const double *pos, const uint32_t num_pos, const double inv_cell_width, const int NY, const int64_t NX, int64_t *out)
 {
   /*
     Find the bucket index (int)(p[0]*inv_cell_width)*nx + (int)(p[1]*inv_cell_width)*ny + (int)(p[2]*inv_cell_width)
@@ -165,7 +165,7 @@ static int connected_pwise(const int cur_size, const int adj_size,
     }
   return 0;
 }
-int fof_link_cells(const int num_pos, const int N, const int M, const double b, 
+int fof_link_cells(const uint32_t num_pos, const int N, const int M, const double b, 
 		   const double *restrict xyz, const int64_t *restrict cell_ids, 
 		   const int64_t *restrict sort_idx, int32_t *restrict domains)
 {
@@ -189,7 +189,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
     cells.
   */
 
-  int num_cells=0;
+  unsigned int num_cells=0;
 
   const int walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
@@ -369,7 +369,7 @@ int fof_link_cells(const int num_pos, const int N, const int M, const double b,
   return num_doms;
 }
 
-int fof_periodic(const int num_pos, const unsigned int N, const int64_t M, const int num_orig, const double b, 
+int fof_periodic(const uint32_t num_pos, const unsigned int N, const int64_t M, const uint32_t num_orig, const double b, 
 		 const double *restrict xyz, const int64_t *restrict cell_ids, 
 		 const int64_t *restrict sort_idx, const int64_t* restrict pad_idx,
 		 int32_t *restrict domains)
@@ -396,7 +396,7 @@ int fof_periodic(const int num_pos, const unsigned int N, const int64_t M, const
     cells.
   */
 
-  int num_cells=1;
+  unsigned int num_cells=1;
 
   const int64_t walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 

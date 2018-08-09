@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-void get_morton_idx(const double *pos, const int num_pos, const double inv_cell_width, int64_t *restrict out)
+void get_morton_idx(const double *pos, const uint32_t num_pos, const double inv_cell_width, int64_t *restrict out)
 {
   /*
     Morton idx for pos in [0,1)^3
