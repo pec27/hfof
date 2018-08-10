@@ -21,9 +21,8 @@ setup(name='hfof', version=find_version("hfof/version.py"),
       url="http://github.com/pec27/hfof",
       package_dir = {'hfof': 'hfof'},
       packages = ['hfof', 'hfof.tests'],
+      include_package_data = True,
       license='MIT',
       install_requires=['numpy', 'scipy'],
       ext_modules = [lib],
-      test_suite='nose.collector',
-      tests_require=['nose'])
-
+      setup_requires=['pytest-runner'])
