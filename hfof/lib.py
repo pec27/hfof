@@ -18,7 +18,8 @@ def _initlib():
         return _libhfof
 
     suffix = sysconfig.get_config_var('SO')
-
+    #suffix = '.so' # force to use just built
+    
     name = path.join(path.dirname(path.abspath(__file__)), '../build/libhfof'+suffix)
     if not path.exists(name):
         raise Exception('Library '+str(name)+' does not exist. Maybe you forgot to make it?')
@@ -35,6 +36,10 @@ def _initlib():
     # minimum and maximum per cell
     # void get_min_max(const double *pos, const uint32_t num_pos, double *restrict out)
     func = _libhfof.get_min_max
+    func.restype = None
+    func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_uint32, ndpointer(ctypes.c_double)]
+    # void get_min_max_2d(const double *pos, const uint32_t num_pos, double *restrict out)
+    func = _libhfof.get_min_max_2d
     func.restype = None
     func.argtypes = [ndpointer(ctypes.c_double), ctypes.c_uint32, ndpointer(ctypes.c_double)]
     
@@ -56,6 +61,15 @@ def _initlib():
     func.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double,
                      ndpointer(ctypes.c_double), ctypes.c_uint32, ctypes.c_double, 
                      ctypes.c_int, ctypes.c_int64, ndpointer(int64)]
+    # void blocks_cells_2d(const double min_x, const double min_y, 
+    #		  const double *restrict pos, const uint32_t N, 
+    #		  const double inv_cell_width, const int64_t P, 
+    #		  int64_t *restrict out)
+    func = _libhfof.blocks_cells_2d
+    func.restype = None
+    func.argtypes = [ctypes.c_double, ctypes.c_double, 
+                     ndpointer(ctypes.c_double), ctypes.c_uint32, ctypes.c_double, 
+                     ctypes.c_int64, ndpointer(int64)]
 
     # Friends of Friends linking periodic (on 4x4x4 cells)
     # see src/fof64.c
@@ -65,6 +79,14 @@ def _initlib():
                      ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
                      ndpointer(int32), ctypes.c_double]
 
+    # Friends-of-friends in 2d, using implementation with 8x8 (=64) cells
+    # see src/fof64_2d
+    func = _libhfof.fof64_2d
+    func.restype = ctypes.c_int
+    func.argtypes = [ctypes.c_uint32,ctypes.c_int,ctypes.c_uint32,ctypes.c_double, 
+                     ndpointer(float64), ndpointer(int64),ndpointer(int64), ndpointer(int64), 
+                     ndpointer(int32), ctypes.c_double]
+    
     # Friends of Friends periodic linking
     # see src/fof.c
     func = _libhfof.fof_periodic
@@ -81,6 +103,13 @@ def _initlib():
     func.restype = ctypes.c_int
     func.argtypes = [ctypes.c_double, ctypes.c_double,ctypes.c_uint32,
                      ndpointer(float64), ndpointer(float64), ndpointer(int64), ctypes.c_int]
+    # int pad_square(const double inv_width, const double r_pad, const uint32_t num_pos, 
+    #	    const double *restrict pos, double *restrict pad_pos, 
+    #	    int64_t *restrict pad_idx, const int max_images)
+    func = _libhfof.pad_square
+    func.restype = ctypes.c_int
+    func.argtypes = [ctypes.c_double, ctypes.c_double,ctypes.c_uint32,
+                     ndpointer(float64), ndpointer(float64), ndpointer(int64), ctypes.c_int]    
     
     return _libhfof
 
@@ -92,6 +121,29 @@ def fof3d_periodic(cells, N, M, n_orig, pad_idx, rcut, sort_idx, xyz, log=None):
     out = empty(n_orig, dtype=int32) # only original points get domains
     lib = _initlib()
     res = lib.fof_periodic(npos, int(N), int(M), int(n_orig), rcut, xyz, cells, sort_idx, pad_idx, out)
+
+    if res<0:
+        raise Exception('Error with code %d'%res)
+    if log is not None:
+        print('Number of domains {:,}'.format(res), file=log)
+    return out
+
+def fof_periodic64_2d(cells, N, rcut, sort_idx, xy, periodic_pad_idx=None, log=None):
+    xy = require(xy, dtype=float64, requirements=['C'])
+    npos = xy.shape[0]
+    if periodic_pad_idx is None:
+        n_orig = npos
+        pad_idx = empty(0, dtype=int64) # Dummy, no images
+    else:
+        n_orig = npos - len(periodic_pad_idx)
+        pad_idx = require(periodic_pad_idx, dtype=int64, requirements=['C'])
+
+    cells = require(cells, dtype=int64, requirements=['C'])
+    sort_idx = require(sort_idx, dtype=int64, requirements=['C'])
+    out = empty(n_orig, dtype=int32) # only original points get domains
+    desired_load=0.6
+    lib = _initlib()
+    res = lib.fof64_2d(npos, int(N), int(n_orig), rcut, xy, cells, sort_idx, pad_idx, out, desired_load)
 
     if res<0:
         raise Exception('Error with code %d'%res)
@@ -158,12 +210,42 @@ def get_blocks_cells(pts, inv_cell_width, Ny, Nx, pts_min, log=sys.stdout):
                            Ny, Nx, out)
     return out
 
-def minmax(pts):
+def get_blocks_cells_2d(pts, inv_cell_width, N, pts_min, log=sys.stdout):
+    """
+    For an (M,2) array of points in [0,1), find index 
+    idx = block<<6 | cell
+    where 
+    ix,iy = (int)(pts[x,y]*inv_cell_width)
+    block := (ix>>3)*N + (iy>>3)
+    cell := (ix&7)<<3 | (iy&7) # (i.e. 0-63)
+    """
     lib = _initlib()
     p = require(pts, dtype=float64, requirements=['C']) 
-    out = empty(6, dtype=float64)
-    res = lib.get_min_max(p, len(p), out)
-    return out[:3], out[3:]
+    npts = p.shape[0]
+    assert(p.shape ==(npts,2))
+
+    out = empty(npts, dtype=int64)
+    min_x, min_y = pts_min.astype(float64)
+
+    res = lib.blocks_cells_2d(min_x, min_y, p, npts, inv_cell_width, 
+                           N, out)
+    return out
+
+def minmax(pts):
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C'])
+    dim = p.shape[1]
+    if dim==3:
+        out = empty(6, dtype=float64)
+        res = lib.get_min_max(p, len(p), out)
+        return out[:3], out[3:]
+    elif dim==2:
+        out = empty(4, dtype=float64)
+        res = lib.get_min_max_2d(p, len(p), out)
+        return out[:2], out[2:]
+
+    raise Exception('Fast min-max only for 3d or 2d vectors, your pts had dimension %d'%dim)
+
 
 def morton_idx(pts):
     """ Find the morton index of the points (on an 8192^3 grid) """
@@ -177,7 +259,6 @@ def morton_idx(pts):
     
 def pad_scaled_cube(pts, boxsize, r_pad, log=None):
     """
-
     For a set of points, find images in [0,boxsize)^3, scale this [0,1)^3 and
     then add the right-hand repeats in [1,r_pad/boxsize) for each dimension
     (incl. repeats of repeats). Return arrays of new positions (scaled and 
@@ -213,6 +294,54 @@ def pad_scaled_cube(pts, boxsize, r_pad, log=None):
         new_pos = empty((N+guess_images,3), dtype=float64)
         pad_idx = empty((guess_images,), dtype=int64)
         new_ims = lib.pad_box(inv_boxsize, r_pad, N, p, new_pos, pad_idx, guess_images)
+        
+    if log is not None:
+        print('{:,} images (c.f. guessed={:,})'.format(new_ims, guess_images), file=log)
+
+    # Arrays contain only used vals
+    new_pos = new_pos[:N+new_ims] # originals+images
+    pad_idx = pad_idx[:new_ims] # images
+    return pad_idx, new_pos
+
+def pad_scaled_square(pts, width, r_pad, log=None):
+    """
+    For a set of points, find images in [0,width)^2, scale this [0,1)^2 and
+    then add the right-hand repeats in [1,r_pad/width) for each dimension
+    (incl. repeats of repeats). Return arrays of new positions (scaled and 
+    padded) along with the corresponding indices in the original array. The 
+    scaled points are always the first N pts in the new array
+
+    pts   - (N,2) array
+    width - size for periodicity
+    r_pad - edge to pad onto [width, width+r_pad)
+    
+    returns pad_idx, pos
+       pad_idx - (N_new) indices of the positions used to pad
+       new_pos - (N+N_new, ndim) array of scaled pos + padded pos [0, 1+r_pad/width]
+
+    """
+    lib = _initlib()
+    p = require(pts, dtype=float64, requirements=['C']) 
+    inv_width = 1.0/width
+    N = len(p)
+    dim = 2
+    assert(p.shape[1]==dim)
+    
+    fudge = 2.0 
+    guess_images = int(fudge*N*dim*r_pad/width) + 1
+    
+    new_pos = empty((N+guess_images,2), dtype=float64)
+    pad_idx = empty((guess_images,), dtype=int64)
+    
+    new_ims = lib.pad_square(inv_width, r_pad, N, p, new_pos, pad_idx, guess_images)
+    while new_ims<0:
+        guess_images *= 2
+        if log is not None:
+            print('Too many images! Doubling size...', file=log)
+
+        new_pos = empty((N+guess_images,2), dtype=float64)
+        pad_idx = empty((guess_images,), dtype=int64)
+        new_ims = lib.pad_square(inv_width, r_pad, N, p, new_pos, pad_idx, guess_images)
         
     if log is not None:
         print('{:,} images (c.f. guessed={:,})'.format(new_ims, guess_images), file=log)

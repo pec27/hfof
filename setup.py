@@ -12,7 +12,7 @@ def find_version(path):
     raise RuntimeError("Version not found")
 
 lib = Extension('build.libhfof',
-                sources = ["src/fof.c",  "src/fof64.c", "src/testing.c", "src/periodic.c"])
+                sources = ["src/fof.c",  "src/fof64.c", "src/testing.c", "src/periodic.c", "src/fof64_2d.c"])
 
 setup(name='hfof', version=find_version("hfof/version.py"),
       author="Peter Creasey",

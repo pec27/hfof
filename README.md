@@ -4,7 +4,7 @@ hfof
 ### Friends of Friends group finding via spatial hashing
 
 
-hfof is an open-source friends-of-friends (FoF) group finder in 3d (periodic and non-periodic), based on the following paper: [arxiv:1805.04911](https://arxiv.org/abs/1805.04911).
+hfof is an open-source friends-of-friends (FoF) group finder in 3d and 2d (periodic and non-periodic), based on the following paper: [arxiv:1805.04911](https://arxiv.org/abs/1805.04911).
 
 Once you have downloaded hfof you will probably want to do the following:
 
@@ -49,3 +49,18 @@ All of these are equivalent to running
 ```
 python examples/example1.py
 ```
+
+If you only want to do clustering on 2-d data I have now added the function
+```python
+# pos an (N,2) array of positions
+fof_labels = fof2d(pos, r_cut, boxsize=None) # integer labels from 0...
+```
+
+## Notes on the 2d implementation in version 0.2
+The 2d FoF (function `fof2d`) is not described in the paper mentioned above, although it broadly follows the same
+methodology as the 3d. The 2d domain is split in blocks which are further decomposed into 8x8 (=64) cells. The blocks are
+entered into a hash-table, and as each point is added to a cell, we test for connection against the neighbouring cells. 
+In 2d this involves checking 10 neighbouring cells (excluding itself, and all those with larger indices), which can be
+found in (up to) 4 blocks (including itself). 
+
+The code to pre-compute the neighbour masks is given in `hfof\ngb_vals.py` and the actual computation is done in `src\fof64_2d.c`.
