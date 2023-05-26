@@ -17,8 +17,7 @@ def _initlib():
     if _libhfof is not None:
         return _libhfof
 
-    suffix = sysconfig.get_config_var('SO')
-    #suffix = '.so' # force to use just built
+    suffix = sysconfig.get_config_var('EXT_SUFFIX')
     
     name = path.join(path.dirname(path.abspath(__file__)), '../build/libhfof'+suffix)
     if not path.exists(name):

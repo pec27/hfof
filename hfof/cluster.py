@@ -57,14 +57,12 @@ def fof(pos, rcut, boxsize=None, log=None):
 
         if log is not None:
             print('Searched', N-n_min,'+', M-N*N, 'composites', file=log)
-            print('N=%9d (prime index conversion factor)'%N, hex(N), file=log)
+            print('N=%9d (prime index conversion factor) %s >= %d'%(N, hex(N), n_min), file=log)
             print('M=%9d (prime index conversion factor)'%M, hex(M), file=log)
             
             print('Inserted {:,} images'.format(len(old_idx)), file=log)
             
             print('Position minima', pos_min, file=log)
-            print('Position maxima', pos_max, file=log)
-            
             
             print('rcut', rcut,file=log)
             
@@ -76,7 +74,10 @@ def fof(pos, rcut, boxsize=None, log=None):
         sort_idx = argsort(cells)
         if log is not None:
             print('3d fof periodic', file=log)
-        domains = fof3d_periodic(cells, N, M, n, old_idx, rcut, sort_idx, pos, log=log)
+            
+        # Number of original points
+        n_orig = pos.shape[0] - len(old_idx)
+        domains = fof3d_periodic(cells, N, M, n_orig, old_idx, rcut, sort_idx, pos, log=log)
         return domains
 
 

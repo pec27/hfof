@@ -10,7 +10,7 @@ from numpy.random import RandomState
 ndom_isol = {0.1:2, 0.05:461, 0.01:9600, 0.005:14497, 0.001:27824}
 
 # linking length:number of domains in the periodic case
-ndom_prd = {0.1:1, 0.05:396, 0.01:9580, 0.005:14488, 0.001:27823}
+ndom_prd = {0.3: 1, 0.1:1, 0.05:396, 0.01:9580, 0.005:14488, 0.001:27823}
 
 def test_cosmo_isol():
     """ Cosmological (non-periodic) """

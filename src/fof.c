@@ -396,7 +396,7 @@ int fof_periodic(const uint32_t num_pos, const unsigned int N, const int64_t M, 
     cells.
   */
 
-  unsigned int num_cells=1;
+  unsigned int num_cells=0;
 
   const int64_t walk_ngbs[WALK_NGB_SIZE] = WALK_NGB(M,N);
 
@@ -454,8 +454,6 @@ int fof_periodic(const uint32_t num_pos, const unsigned int N, const int64_t M, 
   uint32_t *hfill= calloc(hsize>>5, sizeof(uint32_t));
   if (!hfill)
     return -5;
-
-
 
   // Loop over every (filled) cell
   for (size_t i=0, cur_end=0;i<num_cells;++i)
